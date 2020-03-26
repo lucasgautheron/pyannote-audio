@@ -111,8 +111,20 @@ class Pretrained(FeatureExtraction):
             params_yml = self.validate_dir / 'params.yml'
             params = load_params(params_yml)
             self.epoch_ = params['epoch']
+
             # keep track of pipeline parameters
             self.pipeline_params_ = params.get('params', {})
+
+
+            labels_spec_ = params.get('labels_spec', {})
+            if labels_spec_:
+                self.labels_spec_ = labels_spec_
+
+            # Handle the case of the multilabel task
+            label_list = getattr(config['task'], 'label_names', [])
+            for label in label_list:
+                if label in params:
+                    setattr(self, "{}_pipeline_params_".format(label), params[label]['params'])
         else:
             self.epoch_ = epoch
 

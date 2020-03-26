@@ -32,6 +32,10 @@ from .speech_activity_detection import SpeechActivityDetection
 from .speech_activity_detection import DomainAwareSpeechActivityDetection
 from .speech_activity_detection import DomainAdversarialSpeechActivityDetection
 
+from .labels_detection import MultilabelDetection
+from .labels_detection import DomainAwareMultilabelDetection
+from .labels_detection import DomainAdversarialMultilabelDetection
+
 from .overlap_detection import OverlapDetection
 from .speaker_change_detection import SpeakerChangeDetection
 from .domain_classification import DomainClassification
@@ -40,6 +44,7 @@ from .resegmentation import Resegmentation
 
 
 __all__ = ['SpeechActivityDetection',
+           'MultilabelDetection',
            'OverlapDetection',
            'SpeakerChangeDetection',
            'Resegmentation']

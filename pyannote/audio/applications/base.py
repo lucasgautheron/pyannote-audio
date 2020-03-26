@@ -472,115 +472,114 @@ class Application:
             if next_epoch_to_validate_in_order == next_epoch_to_validate:
                 next_epoch_to_validate_in_order += step
 
-# TODO: add support for torch.hub models directly in docopt
+    # TODO: add support for torch.hub models directly in docopt
+    def apply_pretrained(validate_dir: Path,
+                         protocol_name: str,
+                         subset: Optional[str] = "test",
+                         duration: Optional[float] = None,
+                         step: float = 0.25,
+                         device: Optional[torch.device] = None,
+                         batch_size: int = 32,
+                         pretrained: Optional[str] = None,
+                         Pipeline: type = None,
+                         **kwargs):
+        """Apply pre-trained model
 
-def apply_pretrained(validate_dir: Path,
-                     protocol_name: str,
-                     subset: Optional[str] = "test",
-                     duration: Optional[float] = None,
-                     step: float = 0.25,
-                     device: Optional[torch.device] = None,
-                     batch_size: int = 32,
-                     pretrained: Optional[str] = None,
-                     Pipeline: type = None,
-                     **kwargs):
-    """Apply pre-trained model
+        Parameters
+        ----------
+        validate_dir : Path
+        protocol_name : `str`
+        subset : 'train' | 'development' | 'test', optional
+            Defaults to 'test'.
+        duration : `float`, optional
+        step : `float`, optional
+        device : `torch.device`, optional
+        batch_size : `int`, optional
+        pretrained : `str`, optional
+        Pipeline : `type`
+        """
 
-    Parameters
-    ----------
-    validate_dir : Path
-    protocol_name : `str`
-    subset : 'train' | 'development' | 'test', optional
-        Defaults to 'test'.
-    duration : `float`, optional
-    step : `float`, optional
-    device : `torch.device`, optional
-    batch_size : `int`, optional
-    pretrained : `str`, optional
-    Pipeline : `type`
-    """
+        if pretrained is None:
+            pretrained = Pretrained(validate_dir=validate_dir,
+                                    duration=duration,
+                                    step=step,
+                                    batch_size=batch_size,
+                                    device=device)
+            output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
+        else:
+            output_dir = validate_dir / pretrained
+            pretrained = torch.hub.load(
+                'pyannote/pyannote-audio',
+                pretrained,
+                duration=duration,
+                step=step,
+                batch_size=batch_size,
+                device=device)
 
-    if pretrained is None:
-        pretrained = Pretrained(validate_dir=validate_dir,
-                                duration=duration,
-                                step=step,
-                                batch_size=batch_size,
-                                device=device)
-        output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
-    else:
-        output_dir = validate_dir / pretrained
-        pretrained = torch.hub.load(
-            'pyannote/pyannote-audio',
-            pretrained,
-            duration=duration,
-            step=step,
-            batch_size=batch_size,
-            device=device)
+        params = {}
+        try:
+            params['classes'] = pretrained.classes
+        except AttributeError as e:
+            pass
+        try:
+            params['dimension'] = pretrained.dimension
+        except AttributeError as e:
+            pass
 
-    params = {}
-    try:
-        params['classes'] = pretrained.classes
-    except AttributeError as e:
-        pass
-    try:
-        params['dimension'] = pretrained.dimension
-    except AttributeError as e:
-        pass
+        # create metadata file at root that contains
+        # sliding window and dimension information
+        precomputed = Precomputed(
+            root_dir=output_dir,
+            sliding_window=pretrained.sliding_window,
+            **params)
 
-    # create metadata file at root that contains
-    # sliding window and dimension information
-    precomputed = Precomputed(
-        root_dir=output_dir,
-        sliding_window=pretrained.sliding_window,
-        **params)
+        # file generator
+        protocol = get_protocol(
+            protocol_name, progress=True,
+            preprocessors=pretrained.preprocessors_)
 
-    # file generator
-    protocol = get_protocol(
-        protocol_name, progress=True,
-        preprocessors=pretrained.preprocessors_)
-
-    for current_file in getattr(protocol, subset)():
-        fX = pretrained(current_file)
-        precomputed.dump(current_file, fX)
-
-    # do not proceed with the full pipeline
-    # when there is no such thing for current task
-    if Pipeline is None:
-        return
-
-    # instantiate pipeline
-    pipeline = Pipeline(scores=output_dir)
-    pipeline.instantiate(pretrained.pipeline_params_)
-
-    # load pipeline metric (when available)
-    try:
-        metric = pipeline.get_metric()
-    except NotImplementedError as e:
-        metric = None
-
-    # apply pipeline and dump output to RTTM files
-    output_rttm = output_dir / f'{protocol_name}.{subset}.rttm'
-    with open(output_rttm, 'w') as fp:
         for current_file in getattr(protocol, subset)():
-            hypothesis = pipeline(current_file)
-            pipeline.write_rttm(fp, hypothesis)
+            fX = pretrained(current_file)
+            precomputed.dump(current_file, fX)
 
-            # compute evaluation metric (when possible)
-            if 'annotation' not in current_file:
-                metric = None
+        # do not proceed with the full pipeline
+        # when there is no such thing for current task
+        if Pipeline is None:
+            return
 
-            # compute evaluation metric (when available)
-            if metric is None:
-                continue
+        # instantiate pipeline
+        pipeline = Pipeline(scores=output_dir)
+        pipeline.instantiate(pretrained.pipeline_params_)
 
-            reference = current_file['annotation']
-            uem = get_annotated(current_file)
-            _ = metric(reference, hypothesis, uem=uem)
+        # load pipeline metric (when available)
+        try:
+            metric = pipeline.get_metric()
+        except NotImplementedError as e:
+            metric = None
 
-    # print pipeline metric (when available)
-    if metric is None:
-        return
+        # apply pipeline and dump output to RTTM files
+        output_rttm = output_dir / f'{protocol_name}.{subset}.rttm'
+        with open(output_rttm, 'w') as fp:
+            for current_file in getattr(protocol, subset)():
+                hypothesis = pipeline(current_file)
+                pipeline.write_rttm(fp, hypothesis)
 
-    output_eval = output_dir / f'{protocol_name}.{subset}.eval'
-    with open(output_eval, 'w') as fp:
-        fp.write(str(metric))
+                # compute evaluation metric (when possible)
+                if 'annotation' not in current_file:
+                    metric = None
+
+                # compute evaluation metric (when available)
+                if metric is None:
+                    continue
+
+                reference = current_file['annotation']
+                uem = get_annotated(current_file)
+                _ = metric(reference, hypothesis, uem=uem)
+
+        # print pipeline metric (when available)
+        if metric is None:
+            return
+
+        output_eval = output_dir / f'{protocol_name}.{subset}.eval'
+        with open(output_eval, 'w') as fp:
+            fp.write(str(metric))

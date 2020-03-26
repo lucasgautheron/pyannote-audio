@@ -35,6 +35,7 @@ from .overlap_detection import OverlapDetection
 from .speech_turn_segmentation import SpeechTurnSegmentation
 from .speech_turn_segmentation import OracleSpeechTurnSegmentation
 from .speaker_diarization import SpeakerDiarization
+from .labels_detection import MultilabelDetection
 
 try:
     from .resegmentation import Resegmentation
