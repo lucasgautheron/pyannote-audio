@@ -473,6 +473,7 @@ class Application:
                 next_epoch_to_validate_in_order += step
 
     # TODO: add support for torch.hub models directly in docopt
+    
     def apply_pretrained(validate_dir: Path,
                          protocol_name: str,
                          subset: Optional[str] = "test",
@@ -484,7 +485,6 @@ class Application:
                          Pipeline: type = None,
                          **kwargs):
         """Apply pre-trained model
-
         Parameters
         ----------
         validate_dir : Path
@@ -507,14 +507,17 @@ class Application:
                                     device=device)
             output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
         else:
-            output_dir = validate_dir / pretrained
-            pretrained = torch.hub.load(
-                'pyannote/pyannote-audio',
-                pretrained,
-                duration=duration,
-                step=step,
-                batch_size=batch_size,
-                device=device)
+
+            if pretrained in torch.hub.list('pyannote/pyannote-audio'):
+                output_dir = validate_dir / pretrained
+            else:
+                output_dir = validate_dir
+
+            pretrained = Wrapper(pretrained,
+                                 duration=duration,
+                                 step=step,
+                                 batch_size=batch_size,
+                                 device=device)
 
         params = {}
         try:
@@ -547,9 +550,16 @@ class Application:
         if Pipeline is None:
             return
 
+        # do not proceed with the full pipeline when its parameters cannot be loaded.
+        # this might happen when applying a model that has not been validated yet
+        try:
+            pipeline_params = pretrained.pipeline_params_
+        except AttributeError as e:
+            return
+
         # instantiate pipeline
         pipeline = Pipeline(scores=output_dir)
-        pipeline.instantiate(pretrained.pipeline_params_)
+        pipeline.instantiate(pipeline_params)
 
         # load pipeline metric (when available)
         try:
