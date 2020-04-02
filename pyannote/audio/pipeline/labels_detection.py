@@ -34,7 +34,7 @@ from typing import Text
 from typing import Union
 
 import numpy as np
-from pyannote.audio.features.wrapper import Wrapper
+from pyannote.audio.features.wrapper import Wrapper as FeatureExtractionWrapper
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
