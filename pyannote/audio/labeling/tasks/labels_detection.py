@@ -31,6 +31,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from itertools import cycle
 from .base import LabelingTask
@@ -41,6 +42,7 @@ from pyannote.audio.models.models import RNN
 from pyannote.core import Timeline, Annotation, SlidingWindowFeature
 from pyannote.core.utils.numpy import one_hot_encoding
 from pyannote.database import get_annotated, get_protocol
+
 
 
 class MultilabelDetectionGenerator(LabelingTaskGenerator):
@@ -319,7 +321,6 @@ class MultilabelDetection(LabelingTask):
             batch_size=self.batch_size,
             labels_spec=self.labels_spec)
 
-
 class DomainAwareMultilabelDetection(MultilabelDetection):
     """Domain-aware multilabel detection
 
@@ -440,12 +441,10 @@ class DomainAwareMultilabelDetection(MultilabelDetection):
                          device=self.device_)
         fX, intermediate = self.model_(X, return_intermediate=self.attachment)
 
-        # speech activity detection
-        fX = fX.view((-1, self.n_classes_))
         target = torch.tensor(
             batch['y'],
             dtype=torch.int64,
-            device=self.device_).contiguous().view((-1, ))
+            device=self.device_)
 
         weight = self.weight
         if weight is not None:
@@ -508,13 +507,10 @@ class DomainAdversarialMultilabelDetection(DomainAwareMultilabelDetection):
 
         fX, intermediate = self.model_(X, return_intermediate=self.attachment)
 
-        # speech activity detection
-        fX = fX.view((-1, self.n_classes_))
-
         target = torch.tensor(
             batch['y'],
-            dtype=torch.int64,
-            device=self.device_).contiguous().view((-1, ))
+            dtype=torch.float32,
+            device=self.device_)
 
         weight = self.weight
         if weight is not None:
