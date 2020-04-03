@@ -417,9 +417,9 @@ class MultilabelDetection(BaseLabeling):
                     uem = get_annotated(current_file)
                     _ = metric(reference, hypothesis, uem=uem)
 
-            # print pipeline metric (when available)
+            # we continue looping through classes, even though metric is not define
             if metric is None:
-                return
+                continue
 
             output_eval = output_dir / f'{protocol_name}.{subset}.{label}.eval'
             with open(output_eval, 'w') as fp:
