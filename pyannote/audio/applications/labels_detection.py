@@ -37,6 +37,7 @@ import scipy.optimize
 import torch
 import yaml
 from pyannote.audio.applications.base import create_zip
+from pyannote.audio.features.wrapper import Wrapper
 from pyannote.audio.features import Precomputed
 from pyannote.audio.features import Pretrained
 from pyannote.audio.labeling.tasks import MultilabelDetection as MultilabelTask
@@ -48,6 +49,7 @@ from sortedcontainers import SortedDict
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from typing_extensions import Literal
+
 
 from .base_labeling import BaseLabeling
 
@@ -317,15 +319,17 @@ class MultilabelDetection(BaseLabeling):
                                     device=device)
             output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
         else:
-            output_dir = validate_dir / pretrained
-            pretrained = torch.hub.load(
-                'pyannote/pyannote-audio',
-                pretrained,
-                duration=duration,
-                step=step,
-                batch_size=batch_size,
-                device=device)
 
+            if pretrained in torch.hub.list('pyannote/pyannote-audio'):
+                output_dir = validate_dir / pretrained
+            else:
+                output_dir = validate_dir
+
+            pretrained = Wrapper(pretrained,
+                                 duration=duration,
+                                 step=step,
+                                 batch_size=batch_size,
+                                 device=device)
         params = {}
 
         try:

@@ -54,6 +54,7 @@ from pyannote.audio.train.task import Task
 from pyannote.audio.features import Pretrained
 from pyannote.audio.features import Precomputed
 from pyannote.audio.applications.config import load_config
+from pyannote.audio.features.wrapper import Wrapper
 
 
 def create_zip(validate_dir: Path):
@@ -540,7 +541,7 @@ class Application:
         # file generator
         protocol = get_protocol(
             protocol_name, progress=True,
-            preprocessors=pretrained.preprocessors_)
+            preprocessors=getattr(pretrained, "preprocessors_", None))
 
         for current_file in getattr(protocol, subset)():
             fX = pretrained(current_file)
