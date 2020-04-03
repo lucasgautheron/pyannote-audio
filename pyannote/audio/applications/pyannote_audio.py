@@ -32,9 +32,9 @@ Neural building blocks for speaker diarization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Usage:
-  pyannote-audio (sad | scd | ovl | emb | dom) train    [--cpu | --gpu] [options] <root>     <protocol>
-  pyannote-audio (sad | scd | ovl | emb | dom) validate [--cpu | --gpu] [options] <train>    <protocol>
-  pyannote-audio (sad | scd | ovl | emb | dom) apply    [--cpu | --gpu] [options] <validate> <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dom | mlt) train    [--cpu | --gpu] [options] <root>     <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dom | mlt) validate [--cpu | --gpu] [options] <train>    <protocol>
+  pyannote-audio (sad | scd | ovl | emb | dom | mlt) apply    [--cpu | --gpu] [options] <validate> <protocol>
   pyannote-audio -h | --help
   pyannote-audio --version
 
@@ -53,6 +53,9 @@ for the following blocks of a speaker diarization pipeline:
             are not.
     * (dom) domain classification consists in predicting the domain of an
             audio recording
+    * (mlt) multilabel classification consists in predicting N labels,
+            these can be broad classes of speakers : male speech vs female speech
+            vs child speech for instance.
 
 Running a complete speech activity detection experiment on the provided
 "debug" dataset would go like this:
@@ -266,12 +269,12 @@ from pathlib import Path
 import multiprocessing
 
 import torch
-from .base import apply_pretrained
 from .speech_detection import SpeechActivityDetection
 from .change_detection import SpeakerChangeDetection
 from .overlap_detection import OverlapDetection
 from .speaker_embedding import SpeakerEmbedding
 from .domain_classification import DomainClassification
+from .labels_detection import MultilabelDetection
 
 
 def main():
@@ -296,6 +299,9 @@ def main():
     elif arg['dom']:
         Application = DomainClassification
 
+    elif arg['mlt']:
+        Application = MultilabelDetection
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if arg['--gpu'] and device == 'cpu':
         msg = 'No GPU is available. Using CPU instead.'
@@ -319,7 +325,6 @@ def main():
     params['n_jobs'] = int(n_jobs)
 
     if arg['train']:
-
         params['subset'] = 'train' if subset is None else subset
 
         # start training at this epoch (defaults to 0, but 'last' is supported)
@@ -431,4 +436,4 @@ def main():
 
         params['pretrained'] = arg['--pretrained']
 
-        apply_pretrained(validate_dir, protocol, **params)
+        Application.apply_pretrained(validate_dir, protocol, **params)

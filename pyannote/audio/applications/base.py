@@ -53,8 +53,8 @@ from pyannote.audio.train.task import Task
 
 from pyannote.audio.features import Pretrained
 from pyannote.audio.features import Precomputed
-from pyannote.audio.features.wrapper import Wrapper
 from pyannote.audio.applications.config import load_config
+from pyannote.audio.features.wrapper import Wrapper
 
 
 def create_zip(validate_dir: Path):
@@ -479,45 +479,39 @@ class Application:
             if next_epoch_to_validate_in_order == next_epoch_to_validate:
                 next_epoch_to_validate_in_order += step
 
-# TODO: add support for torch.hub models directly in docopt
+    # TODO: add support for torch.hub models directly in docopt
+    def apply_pretrained(validate_dir: Path,
+                         protocol_name: str,
+                         subset: Optional[str] = "test",
+                         duration: Optional[float] = None,
+                         step: float = 0.25,
+                         device: Optional[torch.device] = None,
+                         batch_size: int = 32,
+                         pretrained: Optional[str] = None,
+                         Pipeline: type = None,
+                         **kwargs):
+        """Apply pre-trained model
+        Parameters
+        ----------
+        validate_dir : Path
+        protocol_name : `str`
+        subset : 'train' | 'development' | 'test', optional
+            Defaults to 'test'.
+        duration : `float`, optional
+        step : `float`, optional
+        device : `torch.device`, optional
+        batch_size : `int`, optional
+        pretrained : `str`, optional
+        Pipeline : `type`
+        """
 
-def apply_pretrained(validate_dir: Path,
-                     protocol_name: str,
-                     subset: Optional[str] = "test",
-                     duration: Optional[float] = None,
-                     step: float = 0.25,
-                     device: Optional[torch.device] = None,
-                     batch_size: int = 32,
-                     pretrained: Optional[str] = None,
-                     Pipeline: type = None,
-                     **kwargs):
-    """Apply pre-trained model
-
-    Parameters
-    ----------
-    validate_dir : Path
-    protocol_name : `str`
-    subset : 'train' | 'development' | 'test', optional
-        Defaults to 'test'.
-    duration : `float`, optional
-    step : `float`, optional
-    device : `torch.device`, optional
-    batch_size : `int`, optional
-    pretrained : `str`, optional
-    Pipeline : `type`
-    """
-
-    if pretrained is None:
-        pretrained = Pretrained(validate_dir=validate_dir,
-                                duration=duration,
-                                step=step,
-                                batch_size=batch_size,
-                                device=device)
-        output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
-    else:
-
-        if pretrained in torch.hub.list('pyannote/pyannote-audio'):
-            output_dir = validate_dir / pretrained
+        if pretrained is None:
+            pretrained = Pretrained(validate_dir=validate_dir,
+                                    duration=duration,
+                                    step=step,
+                                    batch_size=batch_size,
+                                    device=device)
+            output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
         else:
             output_dir = validate_dir
 
@@ -527,82 +521,66 @@ def apply_pretrained(validate_dir: Path,
                              batch_size=batch_size,
                              device=device)
 
-    params = {}
-    try:
-        params['classes'] = pretrained.classes
-    except AttributeError as e:
-        pass
-    try:
-        params['dimension'] = pretrained.dimension
-    except AttributeError as e:
-        pass
+        params = {}
+        try:
+            params['classes'] = pretrained.classes
+        except AttributeError as e:
+            pass
+        try:
+            params['dimension'] = pretrained.dimension
+        except AttributeError as e:
+            pass
 
-    # create metadata file at root that contains
-    # sliding window and dimension information
-    precomputed = Precomputed(
-        root_dir=output_dir,
-        sliding_window=pretrained.sliding_window,
-        **params)
+        # create metadata file at root that contains
+        # sliding window and dimension information
+        precomputed = Precomputed(
+            root_dir=output_dir,
+            sliding_window=pretrained.sliding_window,
+            **params)
 
-    # file generator
-    preprocessors = getattr(pretrained, "preprocessors_", dict())
-    if "audio" not in preprocessors:
-        preprocessors["audio"] = FileFinder()
-    if 'duration' not in preprocessors:
-        preprocessors['duration'] = get_audio_duration
-    protocol = get_protocol(protocol_name,
-                            progress=True,
-                            preprocessors=preprocessors)
+        # file generator
+        preprocessors = getattr(pretrained, "preprocessors_", dict())
+        if "audio" not in preprocessors:
+            preprocessors["audio"] = FileFinder()
+        if 'duration' not in preprocessors:
+            preprocessors['duration'] = get_audio_duration
+        protocol = get_protocol(protocol_name,
+                                progress=True,
+                                preprocessors=preprocessors)
 
-    for current_file in getattr(protocol, subset)():
-        fX = pretrained(current_file)
-        precomputed.dump(current_file, fX)
-
-    # do not proceed with the full pipeline
-    # when there is no such thing for current task
-    if Pipeline is None:
-        return
-
-    # do not proceed with the full pipeline when its parameters cannot be loaded.
-    # this might happen when applying a model that has not been validated yet
-    try:
-        pipeline_params = pretrained.pipeline_params_
-    except AttributeError as e:
-        return
-
-    # instantiate pipeline
-    pipeline = Pipeline(scores=output_dir)
-    pipeline.instantiate(pipeline_params)
-
-    # load pipeline metric (when available)
-    try:
-        metric = pipeline.get_metric()
-    except NotImplementedError as e:
-        metric = None
-
-    # apply pipeline and dump output to RTTM files
-    output_rttm = output_dir / f'{protocol_name}.{subset}.rttm'
-    with open(output_rttm, 'w') as fp:
         for current_file in getattr(protocol, subset)():
-            hypothesis = pipeline(current_file)
-            pipeline.write_rttm(fp, hypothesis)
+            fX = pretrained(current_file)
+            precomputed.dump(current_file, fX)
 
-            # compute evaluation metric (when possible)
-            if 'annotation' not in current_file:
-                metric = None
+        # do not proceed with the full pipeline
+        # when there is no such thing for current task
+        if Pipeline is None:
+            return
 
-            # compute evaluation metric (when available)
-            if metric is None:
-                continue
+        # do not proceed with the full pipeline when its parameters cannot be loaded.
+        # this might happen when applying a model that has not been validated yet
+        try:
+            pipeline_params = pretrained.pipeline_params_
+        except AttributeError as e:
+            return
 
-            reference = current_file['annotation']
-            uem = get_annotated(current_file)
-            _ = metric(reference, hypothesis, uem=uem)
+        # instantiate pipeline
+        pipeline = Pipeline(scores=output_dir)
+        pipeline.instantiate(pipeline_params)
 
-    # print pipeline metric (when available)
-    if metric is None:
-        return
+        # load pipeline metric (when available)
+        try:
+            metric = pipeline.get_metric()
+        except NotImplementedError as e:
+            metric = None
 
-    output_eval = output_dir / f'{protocol_name}.{subset}.eval'
-    with open(output_eval, 'w') as fp:
-        fp.write(str(metric))
+        # apply pipeline and dump output to RTTM files
+        output_rttm = output_dir / f'{protocol_name}.{subset}.rttm'
+        with open(output_rttm, 'w') as fp:
+            for current_file in getattr(protocol, subset)():
+                hypothesis = pipeline(current_file)
+                pipeline.write_rttm(fp, hypothesis)
+
+                # compute evaluation metric (when possible)
+                if 'annotation' not in current_file:
+                    metric = None
