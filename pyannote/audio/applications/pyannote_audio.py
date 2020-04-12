@@ -241,7 +241,13 @@ Validation options
 
   For speech activity and overlapped speech detection, validation consists in
   looking for the value of the detection threshold that maximizes the f-score
-  of recall and precision.
+  of recall and precision. Except if the following parameter is provided :
+
+  --precision=<value>     Set target precision
+
+  In which case the validation consists in looking for the value of the detection threshold
+  that maximizes the recall given that the precision is greater than the target value such as
+  provided in the --precision parameter by the user.
 
   For speaker change detection, validation consists in looking for the value of
   the peak detection threshold that maximizes the f-score of purity and
@@ -259,6 +265,8 @@ Validation options
   agglomerative clustering of speech turns (represented by their average
   embedding), and looks for the threshold that maximizes the f-score of purity
   and coverage.
+
+
 
 """
 
@@ -390,6 +398,10 @@ def main():
 
         params['diarization'] = arg['--diarization']
 
+        params['precision'] = arg['--precision']
+        if params['precision'] is not None:
+            params['precision'] = float(params['precision'])
+
         duration = arg['--duration']
         if duration is None:
             duration = getattr(app.task_, 'duration', None)
@@ -425,6 +437,7 @@ def main():
 
         params['subset'] = 'test' if subset is None else subset
         params['batch_size'] = int(arg['--batch'])
+
 
         duration = arg['--duration']
         if duration is not None:

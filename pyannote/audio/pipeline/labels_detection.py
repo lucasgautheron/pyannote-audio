@@ -38,11 +38,14 @@ from pyannote.audio.features.wrapper import Wrapper as FeatureExtractionWrapper
 from pyannote.audio.utils.signal import Binarize
 from pyannote.core import Annotation
 from pyannote.core import SlidingWindowFeature
+from pyannote.metrics.detection import DetectionPrecision
+from pyannote.metrics.detection import DetectionRecall
 from pyannote.metrics.detection import DetectionErrorRate
 from pyannote.metrics.detection import DetectionPrecisionRecallFMeasure
 from pyannote.pipeline import Pipeline
 from pyannote.pipeline.parameter import Uniform
 
+from pyannote.database import get_annotated
 
 class MultilabelDetection(Pipeline):
     """Multilabel detection pipeline
@@ -71,7 +74,7 @@ class MultilabelDetection(Pipeline):
     """
 
     def __init__(self, label_list, considered_label, scores: Union[Text, Path] = None,
-                       fscore: bool = False):
+                       fscore: bool = False, precision=None):
         super().__init__()
 
         if scores is None:
@@ -83,6 +86,8 @@ class MultilabelDetection(Pipeline):
         self._scores = FeatureExtractionWrapper(self.scores)
 
         self.fscore = fscore
+        self.precision = precision
+
 
         # hyper-parameters
         self.onset = Uniform(0., 1.)
@@ -156,3 +161,18 @@ class MultilabelDetection(Pipeline):
             return DetectionErrorRate(collar=0.0,
                                       skip_overlap=False,
                                       parallel=parallel)
+
+    def loss(self, current_file: dict, hypothesis=None):
+        reference = current_file['annotation']
+        uem = get_annotated(current_file)
+
+        precision = DetectionPrecision()
+        recall = DetectionRecall()
+
+        p = precision(reference, hypothesis, uem=uem)
+        r = recall(reference, hypothesis, uem=uem)
+
+        if p > self.precision:
+            return 1. - r
+        else:
+            return 1. + (1. - p)
