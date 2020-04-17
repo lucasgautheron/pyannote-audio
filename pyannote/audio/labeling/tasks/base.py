@@ -583,11 +583,23 @@ class LabelingTask(Trainer):
                                           reduction='none'))
 
         if self.task_.is_multilabel_classification:
+            
+            # store losses for each task separately to log them later (cleared every epoch)
+            self.task_batch_losses = [[] for _ in range(len(self.model_.classes))]
 
             def loss_func(input, target, weight=None, mask=None):
                 if mask is None:
-                    return F.binary_cross_entropy(input, target, weight=weight,
-                                                  reduction='mean')
+                    # label-wise cross entropy
+                    losses = []
+                    num_labels = target.size()[-1]
+                    for i in range(num_labels):
+                        task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], reduction='mean')
+                        losses.append(task_i_loss)
+                        self.task_batch_losses[i].append(task_i_loss.clone().detach())
+
+                    aggregated_loss = torch.mean(torch.tensor(losses, requires_grad=True))
+
+                    return aggregated_loss
                 else:
                     return torch.mean(
                         mask * F.binary_cross_entropy(input, target,
@@ -606,6 +618,19 @@ class LabelingTask(Trainer):
                                           reduction='none'))
 
         self.loss_func_ = loss_func
+
+    def on_epoch_end(self):
+        """Log per task loss to tensorboard for multilabel_classification
+        """
+        if self.task_.is_multilabel_classification:
+            print("Epoch"+str(self.epoch_))
+            for i in range(len(self.task_batch_losses)):
+                loss_i = torch.mean(torch.tensor(self.task_batch_losses[i]))
+                print("Loss "+self.label_names[i]+" "+str(loss_i.detach().cpu().numpy()))
+                self.tensorboard_.add_scalar(
+                    f'train/loss_{self.label_names[i]}', loss_i.clone().detach().numpy(),
+                    global_step=self.epoch_)
+                self.task_batch_losses[i].clear()
 
     def batch_loss(self, batch):
         """Compute loss for current `batch`
