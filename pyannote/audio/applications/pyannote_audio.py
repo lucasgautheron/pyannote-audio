@@ -450,3 +450,6 @@ def main():
         params['pretrained'] = arg['--pretrained']
 
         Application.apply_pretrained(validate_dir, protocol, **params)
+
+if __name__ == '__main__':
+    main()
