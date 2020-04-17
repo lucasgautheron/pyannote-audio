@@ -427,7 +427,6 @@ class Trainer:
 
             # EPOCH STARTS
             self.epoch_ += 1
-            self.on_epoch_start()
             callbacks.on_epoch_start(self)
 
             for i in range(self.batches_per_epoch_):
@@ -450,7 +449,6 @@ class Trainer:
                 self.on_batch_end(loss)
                 callbacks.on_batch_end(self, loss)
 
-            self.on_epoch_end()
             callbacks.on_epoch_end(self)
 
             yield self.model_
