@@ -623,10 +623,8 @@ class LabelingTask(Trainer):
         """Log per task loss to tensorboard for multilabel_classification
         """
         if self.task_.is_multilabel_classification:
-            print("Epoch"+str(self.epoch_))
             for i in range(len(self.task_batch_losses)):
                 loss_i = torch.mean(torch.tensor(self.task_batch_losses[i]))
-                print("Loss "+self.label_names[i]+" "+str(loss_i.detach().cpu().numpy()))
                 self.tensorboard_.add_scalar(
                     f'train/loss_{self.label_names[i]}', loss_i.clone().detach().numpy(),
                     global_step=self.epoch_)
