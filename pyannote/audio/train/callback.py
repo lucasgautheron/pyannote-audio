@@ -111,6 +111,7 @@ class Callbacks:
             callback.on_train_start(trainer)
 
     def on_epoch_start(self, trainer):
+        trainer.on_epoch_start()
         for callback in self.callbacks:
             callback.on_epoch_start(trainer)
 

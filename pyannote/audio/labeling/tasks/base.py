@@ -597,9 +597,8 @@ class LabelingTask(Trainer):
                         losses.append(task_i_loss)
                         self.task_batch_losses[i].append(task_i_loss.clone().detach())
 
-                    aggregated_loss = torch.mean(torch.tensor(losses, requires_grad=True))
-
-                    return aggregated_loss
+                    mean_loss = sum(losses)/float(num_labels)
+                    return mean_loss
                 else:
                     return torch.mean(
                         mask * F.binary_cross_entropy(input, target,
@@ -607,7 +606,6 @@ class LabelingTask(Trainer):
                                                       reduction='none'))
 
         if self.task_.is_regression:
-
             def loss_func(input, target, weight=None, mask=None):
                 if mask is None:
                     return F.mse_loss(input, target,
@@ -618,6 +616,13 @@ class LabelingTask(Trainer):
                                           reduction='none'))
 
         self.loss_func_ = loss_func
+
+    def on_epoch_start(self):
+        """Clearing per task batch losses saved during last epoch
+        """
+        if self.task_.is_multilabel_classification:
+            for i in range(len(self.task_batch_losses)):
+                self.task_batch_losses[i].clear()
 
     def on_epoch_end(self):
         """Log per task loss to tensorboard for multilabel_classification
