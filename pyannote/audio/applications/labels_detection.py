@@ -130,15 +130,14 @@ class MultilabelDetection(BaseLabeling):
             aggregated_metric = 0
 
             for considered_label in label_names:
-
                 lower_alpha = 0.
                 upper_alpha = 1.
                 best_alpha = .5 * (lower_alpha + upper_alpha)
                 best_recall = 0.
-                pipeline = self.Pipeline(scores="@scores",
+                pipeline = MultilabelDetectionPipeline(scores="@scores",
                                          label_list=label_names,
                                          considered_label=considered_label,
-                                         precision=precision)
+                                         precision=target_precision)
 
                 # dichotomic search to find threshold that maximizes recall
                 # while having at least `target_precision`
@@ -148,8 +147,8 @@ class MultilabelDetection(BaseLabeling):
                     current_alpha = .5 * (lower_alpha + upper_alpha)
                     pipeline.instantiate({'onset':  current_alpha,
                                           'offset':  current_alpha,
-                                          'min_duration_on':  0.,
-                                          'min_duration_off':  0.,
+                                          'min_duration_on': 0.100,
+                                          'min_duration_off': 0.100,
                                           'pad_onset':  0.,
                                           'pad_offset':  0.})
 
@@ -187,7 +186,7 @@ class MultilabelDetection(BaseLabeling):
                                                                              'pad_onset': 0.,
                                                                              'pad_offset': 0.})
                 result[considered_label]['minimize'] = False
-                result[considered_label]['metric'] = f'recall@{target_precision:.2f}precision'
+                result[considered_label]['metric'] = f'recall@{100 * target_precision:.2f}precision'
                 result[considered_label]['value'] = best_recall
                 aggregated_metric += result[considered_label]['value']
 
@@ -261,7 +260,6 @@ class MultilabelDetection(BaseLabeling):
                        n_jobs: int = 1,
                        precision: int = None,
                        **kwargs):
-
         # use last available epoch as starting point
         if start == 'last':
             start = self.get_number_of_epochs() - 1
@@ -317,6 +315,7 @@ class MultilabelDetection(BaseLabeling):
                 metric = details['metric']
                 # should the metric be minimized?
                 minimize = details['minimize']
+
                 # epoch -> value dictionary
                 values = SortedDict()
 
@@ -377,6 +376,7 @@ class MultilabelDetection(BaseLabeling):
 
     # TODO: add support for torch.hub models directly in docopt
     @staticmethod
+    @profile
     def apply_pretrained(validate_dir: Path,
                          protocol_name: str,
                          subset: Optional[str] = "test",
