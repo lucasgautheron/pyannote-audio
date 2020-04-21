@@ -62,6 +62,8 @@ class SincConv1d(nn.Module):
         Defaults to 50.
     min_band_hz: `int`, optional
         Defaults to 50.
+    add_odd_filters: 'bool', optional
+        If set to True, add odd filters to SincNet, default to False.
 
     Usage
     -----
@@ -83,7 +85,7 @@ class SincConv1d(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size,
                  sample_rate=16000, min_low_hz=50, min_band_hz=50,
-                 stride=1, padding=0, dilation=1, bias=False, groups=1):
+                 stride=1, padding=0, dilation=1, add_odd_filters=False, bias=False, groups=1):
 
         super().__init__()
 
@@ -108,6 +110,9 @@ class SincConv1d(nn.Module):
         self.stride = stride
         self.padding = padding
         self.dilation = dilation
+        self.add_odd_filters = add_odd_filters
+        if self.add_odd_filters:
+            self.out_channels = self.out_channels // 2
 
         if bias:
             raise ValueError('SincConv1d does not support bias.')
@@ -124,7 +129,7 @@ class SincConv1d(nn.Module):
 
         mel = np.linspace(self.to_mel(low_hz),
                           self.to_mel(high_hz),
-                          self.out_channels + 1)
+                          self.out_channels + 1, dtype='float32')
         hz = self.to_hz(mel)
 
         # filter lower frequency (out_channels, 1)
@@ -134,9 +139,9 @@ class SincConv1d(nn.Module):
         self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
 
         # Half Hamming half window
-        n_lin=torch.linspace(0, self.kernel_size / 2 - 1,
+        n_lin = torch.linspace(0, self.kernel_size / 2 - 1,
                              steps=int((self.kernel_size / 2)))
-        self.window_= 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
+        self.window_ = 0.54 - 0.46 * torch.cos(2 * math.pi * n_lin / self.kernel_size)
 
         # (kernel_size, 1)
         # Due to symmetry, I only need half of the time axes
@@ -161,7 +166,7 @@ class SincConv1d(nn.Module):
         self.n_ = self.n_.to(waveforms.device)
         self.window_ = self.window_.to(waveforms.device)
 
-        low = self.min_low_hz  + torch.abs(self.low_hz_)
+        low = self.min_low_hz + torch.abs(self.low_hz_)
 
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_),
                            self.min_low_hz, self.sample_rate / 2)
@@ -173,18 +178,36 @@ class SincConv1d(nn.Module):
         # Equivalent to Eq.4 of the reference paper
         # I just have expanded the sinc and simplified the terms.
         # This way I avoid several useless computations.
-        band_pass_left = (
+
+        #  1° Even filters : standard SincNet configuration
+        even_band_pass_left = (
             (torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2)) * self.window_
-        band_pass_center = 2 * band.view(-1, 1)
-        band_pass_right = torch.flip(band_pass_left, dims=[1])
+        even_band_pass_center = 2 * band.view(-1, 1)
+        even_band_pass_right = torch.flip(even_band_pass_left, dims=[1])
 
-        band_pass = torch.cat(
-            [band_pass_left, band_pass_center, band_pass_right], dim=1)
+        even_band_pass = torch.cat(
+            [even_band_pass_left, even_band_pass_center, even_band_pass_right], dim=1)
+        even_band_pass = even_band_pass / (2 * band[:, None])
+        even_band_pass = even_band_pass.view(self.out_channels, 1, self.kernel_size)
+        band_pass = even_band_pass
 
-        band_pass = band_pass / (2 * band[:, None])
 
-        self.filters = (band_pass).view(
-            self.out_channels, 1, self.kernel_size)
+        # 2° Odd filters if asked by the user
+        if self.add_odd_filters:
+            odd_band_pass_left = (
+                (torch.cos(f_times_t_low) - torch.cos(f_times_t_high)) / (self.n_ / 2)) * self.window_
+            odd_band_pass_center = torch.zeros_like(band.view(-1, 1))
+            odd_band_pass_right = - torch.flip(odd_band_pass_left, dims=[1])
+
+            odd_band_pass = torch.cat(
+                [odd_band_pass_left, odd_band_pass_center, odd_band_pass_right], dim=1)
+            odd_band_pass = odd_band_pass / (2 * band[:, None])
+            odd_band_pass = odd_band_pass.view(self.out_channels, 1, self.kernel_size)
+            band_pass = torch.cat([even_band_pass, odd_band_pass], dim=0)
+
+        total_nb_filters = 2*self.out_channels if self.add_odd_filters else self.out_channels
+        self.filters = band_pass.view(
+            total_nb_filters, 1, self.kernel_size)
 
         return F.conv1d(waveforms, self.filters, stride=self.stride,
                         padding=self.padding, dilation=self.dilation,
@@ -202,6 +225,8 @@ class SincNet(nn.Module):
     instance_normalize : `bool`, optional
         Standardize internal representation (to zero mean and unit standard
         deviation) and apply (learnable) affine transform. Defaults to True.
+    add_odd_filters : 'bool', optional
+
 
 
     Reference
@@ -240,7 +265,6 @@ class SincNet(nn.Module):
                              step=jump / sample_rate,
                              start=0.)
 
-
     def __init__(self,
                  waveform_normalize=True,
                  sample_rate=16000,
@@ -252,7 +276,8 @@ class SincNet(nn.Module):
                  max_pool=[3, 3, 3],
                  instance_normalize=True,
                  activation='leaky_relu',
-                 dropout=0.):
+                 dropout=0.,
+                 add_odd_filters=False):
         super().__init__()
 
         # check parameters values
@@ -295,6 +320,9 @@ class SincNet(nn.Module):
         if self.instance_normalize:
             self.instance_norm1d_ = nn.ModuleList([])
 
+        # Add odd filters or not
+        self.add_odd_filters = add_odd_filters
+
         config = zip(self.out_channels,
                      self.kernel_size,
                      self.stride,
@@ -323,7 +351,8 @@ class SincNet(nn.Module):
                                     padding=0,
                                     dilation=1,
                                     bias=False,
-                                    groups=1)
+                                    groups=1,
+                                    add_odd_filters=add_odd_filters)
             self.conv1d_.append(conv1d)
 
             # 1D max-pooling
