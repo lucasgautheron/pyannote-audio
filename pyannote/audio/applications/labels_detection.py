@@ -376,7 +376,6 @@ class MultilabelDetection(BaseLabeling):
 
     # TODO: add support for torch.hub models directly in docopt
     @staticmethod
-    @profile
     def apply_pretrained(validate_dir: Path,
                          protocol_name: str,
                          subset: Optional[str] = "test",
