@@ -332,9 +332,16 @@ class MultilabelDetection(BaseLabeling):
             values[epoch] = details['value']
 
             # send value to tensorboard
+            # per label
+            for label in details['labels']:
+                writer.add_scalar(f'validate/{protocol}.{subset}/{label}/{metric}',
+                                details[label]['value'],
+                                global_step=epoch)
+            # aggregated
             writer.add_scalar(
                 f'validate/{protocol}.{subset}/{metric}',
                 values[epoch], global_step=epoch)
+            
 
             # keep track of best value so far
             if minimize:
