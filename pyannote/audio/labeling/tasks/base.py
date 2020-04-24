@@ -646,14 +646,12 @@ class LabelingTask(Trainer):
                     global_step=self.epoch_)
                 self.task_batch_losses[i].clear()
 
-    def grad_norm(self, fX, target, mask):
+    def grad_norm(self, fX, target, mask, progress_weighting=True):
         # Weights normalization
-        weights_sum = sum(self.weights).detach()
+        weights_sum = sum(self.weights)
         for i,w in enumerate(self.weights):
             w.to(device=self.device_)
-            w.detach_()
             w /= weights_sum / len(self.weights)
-            w.requires_grad=True
         
         # Gradient norms
         joint_loss,single_losses = self.loss_func_(fX,
@@ -664,38 +662,39 @@ class LabelingTask(Trainer):
         grad_norms = []
         grad_layer = self.model_.get_last_shared_layer()
         for single_loss in single_losses:
-            grad = autograd.grad(single_loss, [grad_layer.weight], retain_graph=True, create_graph=True)[0]
+            grad = autograd.grad(single_loss, [grad_layer.weight], retain_graph=True)[0]
             grad_norms.append(torch.norm(grad, p=2))
         avg_grad_norm = sum(grad_norms)/float(len(grad_norms))
 
         # progress ratios
-        if self.first_epoch_losses is None:
-            self.first_epoch_losses = single_losses
+        if progress_weighting:
+            if self.first_epoch_losses is None:
+                self.first_epoch_losses = single_losses
 
-        unweighted_losses = []
-        inverse_rates = []
-        for i in range(len(single_losses)):
-            unweighted_losses.append(single_losses[i]/self.weights[i])
-            inverse_rates.append(unweighted_losses[i] / self.first_epoch_losses[i])
-        avg_inv_rate = sum(inverse_rates)/float(len(inverse_rates))
-        relative_inv_rates = []
-        for i in range(len(single_losses)):
-            relative_inv_rates.append(inverse_rates[i] / avg_inv_rate)
-        
+            unweighted_losses = []
+            inverse_rates = []
+            for i in range(len(single_losses)):
+                unweighted_losses.append(single_losses[i]/self.weights[i])
+                inverse_rates.append(unweighted_losses[i] / self.first_epoch_losses[i])
+            avg_inv_rate = sum(inverse_rates)/float(len(inverse_rates))
+            relative_inv_rates = []
+            for i in range(len(single_losses)):
+                relative_inv_rates.append(inverse_rates[i] / avg_inv_rate)
+        else:
+            relative_inv_rates = [1.0 for i in range(len(single_losses))]
+
         # desired gradient norms
         desired_norms = []
         alpha = 1.0
         for i in range(len(single_losses)):
             desired_norms.append(avg_grad_norm * relative_inv_rates[i]**alpha)
-            desired_norms[i].detach_()
+            #desired_norms[i].detach_()
         
-        # adapt weights to meet or get closer to desired gradient norms
-        grad_norm_losses = []
-        for i in range(len(single_losses)):
-            grad_norm_losses.append(torch.abs(grad_norms[i] - desired_norms[i]))
-        
+        # adapt weights to meet or get closer to desired gradient norms       
         for i,w in enumerate(self.weights):
-            w.grad = autograd.grad(grad_norm_losses[i], [w], retain_graph=True)[0]
+            w.grad = grad_norms[i]/w
+            if grad_norms[i] < desired_norms[i]:
+                w.grad *= -1.0
         self.weights_optimizer.step()
         self.weights_optimizer.zero_grad()
 
