@@ -528,6 +528,12 @@ class PyanNet(Model):
             return self.sincnet_.dimension
         return self.rnn_.intermediate_dimension(layer-1)
 
+    def get_last_shared_layer(self):
+        '''
+        Last layer that is shared by all tasks/labels
+        Used for GradNorm
+        '''
+        return self.ff_.linear_[-1]
 
 class SincTDNN(Model):
     """waveform -> SincNet -> XVectorNet (TDNN -> FC) -> output

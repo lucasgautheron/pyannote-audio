@@ -35,6 +35,7 @@ import torch.nn.functional as F
 
 from itertools import cycle
 from .base import LabelingTask
+from pyannote.audio.train.trainer import ARBITRARY_LR
 from .base import LabelingTaskGenerator
 from pyannote.audio.train.task import Task, TaskType, TaskOutput
 from ..gradient_reversal import GradientReversal
@@ -234,6 +235,7 @@ class MultilabelDetection(LabelingTask):
         self.nb_regular_labels = len(labels_spec["regular"])
 
         self.n_classes_ = self.nb_regular_labels + len(self.union_labels) + len(self.intersection_labels)
+
 
     @staticmethod
     def derives_label(annotation, derivation_type, meta_label, regular_labels):

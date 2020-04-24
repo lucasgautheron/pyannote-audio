@@ -329,6 +329,15 @@ class Trainer:
         self.optimizer_ = get_optimizer(self.parameters(), lr=lr)
         self.base_learning_rate_ = learning_rate
 
+        # GradNorm weights and weights optimizer
+        # (quick 'n dirty. This should be in an inherited fit_iter in MultilabelDetection class)
+        
+        self.weights = [torch.tensor([1.], requires_grad=True) for i in range(self.n_classes_)]
+        self.weights_optimizer = get_optimizer(self.weights, lr=lr)
+        self.first_epoch_losses = None
+
+        
+
         # make sure that 'train_dir' directory does not exist when
         # fine-tuning a pre-trained model or starting from scratch
         # as it might contain the output of very long computations:
