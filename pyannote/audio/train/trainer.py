@@ -447,7 +447,7 @@ class Trainer:
                 batch = callbacks.on_batch_start(self, batch)
 
                 # FORWARD PASS + LOSS COMPUTATION
-                loss = self.batch_loss(batch)
+                loss = self.batch_loss(batch, grad_norm=True)
 
                 # BACKWARD PASS
                 loss['loss'].backward()

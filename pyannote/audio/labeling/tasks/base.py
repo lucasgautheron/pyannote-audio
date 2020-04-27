@@ -837,7 +837,7 @@ class LabelingTask(Trainer):
         if weight is not None:
             weight = weight.to(device=self.device_)
         
-        if True:#grad_norm:
+        if grad_norm:
             
             loss = self.grad_norm(fX, target, mask)
             return {'loss':loss}
