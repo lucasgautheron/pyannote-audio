@@ -615,8 +615,8 @@ class LabelingTask(Trainer):
                     
                     if count_for_batch_loss:
                         for i in range(num_labels):
-                            self.task_batch_losses[i].append(losses[i].clone().detach())
-                            self.weighted_task_batch_losses[i].append(weighted_losses[i].clone().detach())
+                            self.task_batch_losses[i].append(losses[i].clone().detach().cpu())
+                            self.weighted_task_batch_losses[i].append(weighted_losses[i].clone().detach().cpu())
                     
                     if not return_separate_losses:
                         return aggregated_loss
@@ -648,7 +648,7 @@ class LabelingTask(Trainer):
         if self.task_.is_multilabel_classification:
             weight_dict = {}
             normed_weight_dict = {}
-            weight_sum = sum(self.weights).clone().detach().numpy()
+            weight_sum = sum(self.weights).clone().detach().cpu().numpy()
             for i in range(len(self.task_batch_losses)):
                 # clearing batch log memory
                 self.task_batch_losses[i].clear()
@@ -656,7 +656,7 @@ class LabelingTask(Trainer):
                 self.task_batch_progress_rates[i].clear()
                 self.task_batch_grad_norms[i].clear()
                 # weights logging
-                weight = self.weights[i].clone().detach().numpy()
+                weight = self.weights[i].clone().detach().cpu().numpy()
                 weight_dict[self.label_names[i]] = weight
                 normed_weight_dict[self.label_names[i]] = weight/(weight_sum/len(self.weights))
 
@@ -682,16 +682,16 @@ class LabelingTask(Trainer):
             for i in range(len(self.task_batch_losses)):
                 label = self.label_names[i]
                 loss = torch.mean(torch.tensor(self.task_batch_losses[i]))
-                loss_dict[label] = loss.clone().detach().numpy()
+                loss_dict[label] = loss.cpu().numpy()
             
                 weighted_loss = torch.mean(torch.tensor(self.weighted_task_batch_losses[i]))
-                weighted_loss_dict[label] = weighted_loss.clone().detach().numpy()
+                weighted_loss_dict[label] = weighted_loss.cpu().numpy()
             
                 rel_inv_rate = torch.mean(torch.tensor(self.task_batch_progress_rates[i]))
-                progress_ratio_dict[label] = rel_inv_rate.clone().detach().numpy()
+                progress_ratio_dict[label] = rel_inv_rate.cpu().numpy()
 
                 grad_norm = torch.mean(torch.tensor(self.task_batch_grad_norms[i]))
-                grad_norm_dict[label] = grad_norm.clone().detach().numpy()
+                grad_norm_dict[label] = grad_norm.cpu().numpy()
 
             self.tensorboard_.add_scalars(
                     f'train/loss',
@@ -718,7 +718,7 @@ class LabelingTask(Trainer):
         # Weights normalization
         weights_sum = sum(self.weights)
         for i, w in enumerate(self.weights):
-            w.to(device=self.device_)
+            #w.to(device=self.device_)
             w /= weights_sum / len(self.weights)
         
         # Gradient norms
@@ -734,10 +734,11 @@ class LabelingTask(Trainer):
             grad = autograd.grad(single_loss, [grad_layer.weight], retain_graph=True)[0]
             grad_norms.append(torch.norm(grad, p=2))
 
-            self.task_batch_grad_norms[i].append(grad_norms[-1].clone().detach()) #logging
+            self.task_batch_grad_norms[i].append(grad_norms[-1].clone().detach().cpu()) #logging
         avg_grad_norm = sum(grad_norms)/float(len(grad_norms))
 
         # progress ratios
+        relative_inv_rates = []
         if progress_weighting:
             if self.first_epoch_losses is None:
                 self.first_epoch_losses = single_losses
@@ -748,15 +749,15 @@ class LabelingTask(Trainer):
                 unweighted_losses.append(single_losses[i]/self.weights[i])
                 inverse_rates.append(unweighted_losses[i] / self.first_epoch_losses[i])
             avg_inv_rate = sum(inverse_rates)/float(len(inverse_rates))
-            relative_inv_rates = []
             for i in range(len(single_losses)):
                 relative_inv_rates.append(inverse_rates[i] / avg_inv_rate)
         else:
-            relative_inv_rates = [1.0 for i in range(len(single_losses))]
+             for i in range(len(single_losses)):
+                 relative_inv_rates.append(torch.tensor([1.], device=self.device_))
 
         for i in range(len(single_losses)):
             # logging
-            self.task_batch_progress_rates[i].append(relative_inv_rates[i])
+            self.task_batch_progress_rates[i].append(relative_inv_rates[i].clone().detach().cpu())
 
         # desired gradient norms
         desired_norms = []
