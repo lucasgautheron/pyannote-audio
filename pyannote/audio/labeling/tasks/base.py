@@ -780,7 +780,7 @@ class LabelingTask(Trainer):
         self.weights_optimizer.step()
         # don't let the weights get too small
         for i, w in enumerate(self.weights):
-            if w < 1:
+            if w < 0.01:
                 w -= (w-0.01)
         self.weights_optimizer.zero_grad()
 
