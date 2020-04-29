@@ -646,6 +646,7 @@ class LabelingTask(Trainer):
         - Logging GradNorm weights
         """
         if self.task_.is_multilabel_classification:
+            self.batch_ = 0
             weight_dict = {}
             normed_weight_dict = {}
             weight_sum = sum(self.weights).clone().detach().cpu().numpy()
@@ -694,7 +695,7 @@ class LabelingTask(Trainer):
                 grad_norm_dict[label] = grad_norm.cpu().numpy()
 
             self.tensorboard_.add_scalars(
-                    f'train/loss',
+                    f'train/unweighted-loss',
                     loss_dict,
                     global_step=self.epoch_)
             self.tensorboard_.add_scalars(
@@ -770,9 +771,27 @@ class LabelingTask(Trainer):
             w.grad = grad_norms[i]/w
             if grad_norms[i] < desired_norms[i]:
                 w.grad *= -1.0
+        
+        # debugging log 1/2 (can be deleted)
+        old_weights = [w.clone().detach().cpu().numpy()[0] for w in self.weights]
+        ##### end debugging log 1/2
+
         self.weights_optimizer.step()
         self.weights_optimizer.zero_grad()
 
+        # debugging log 2/2 (can be deleted)
+        print('\n')
+        for i in range(len(single_losses)):
+            label = self.label_names[i]
+            s = f'{label},'
+            s += str(grad_norms[i].clone().detach().cpu().numpy())+','
+            s += str(desired_norms[i][0].clone().detach().cpu().numpy())+','
+            s += str(old_weights[i])+','
+            s += str(self.weights[i].clone().detach().cpu().numpy()[0])+','
+            s += str(self.epoch_)+','+str(self.batch_)
+            print(s)
+        ##### end debugging log 2/2
+        
         # recompute gradients with new weights
         loss = self.loss_func_(fX,
                                target,
@@ -822,7 +841,7 @@ class LabelingTask(Trainer):
 
         elif self.task_.is_multilabel_classification or \
              self.task_.is_regression:
-
+            self.batch_ += 1
             target = torch.tensor(
                 batch['y'],
                 dtype=torch.float32,
@@ -839,7 +858,6 @@ class LabelingTask(Trainer):
             weight = weight.to(device=self.device_)
         
         if grad_norm:
-            
             loss = self.grad_norm(fX, target, mask)
             return {'loss':loss}
 
