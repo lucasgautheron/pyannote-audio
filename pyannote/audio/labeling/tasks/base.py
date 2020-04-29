@@ -778,6 +778,10 @@ class LabelingTask(Trainer):
         ##### end debugging log 1/2
 
         self.weights_optimizer.step()
+        # don't let the weights get too small
+        for i, w in enumerate(self.weights):
+            if w < 1:
+                w -= (w-0.01)
         self.weights_optimizer.zero_grad()
 
         # debugging log 2/2 (can be deleted)
