@@ -566,6 +566,7 @@ class LabelingTask(Trainer):
 
         loss_func_ = Function f(input, target, weight=None) -> loss value
         """
+        self.debug_out = open('debug_out.txt','w')
 
         self.task_ = self.model_.task
 
@@ -766,7 +767,7 @@ class LabelingTask(Trainer):
         for i in range(len(single_losses)):
             desired_norms.append(avg_grad_norm * relative_inv_rates[i]**alpha)
         
-        # adapt weights to meet or get closer to desired gradient norms       
+        # adapt weights to meet or get closer to desired gradient norms
         for i, w in enumerate(self.weights):
             w.grad = grad_norms[i]/w
             if grad_norms[i] < desired_norms[i]:
@@ -780,7 +781,6 @@ class LabelingTask(Trainer):
         self.weights_optimizer.zero_grad()
 
         # debugging log 2/2 (can be deleted)
-        print('\n')
         for i in range(len(single_losses)):
             label = self.label_names[i]
             s = f'{label},'
@@ -789,7 +789,8 @@ class LabelingTask(Trainer):
             s += str(old_weights[i])+','
             s += str(self.weights[i].clone().detach().cpu().numpy()[0])+','
             s += str(self.epoch_)+','+str(self.batch_)
-            print(s)
+            self.debug_out.write(s+'\n')
+        self.debug_out.flush()
         ##### end debugging log 2/2
         
         # recompute gradients with new weights
@@ -841,7 +842,6 @@ class LabelingTask(Trainer):
 
         elif self.task_.is_multilabel_classification or \
              self.task_.is_regression:
-            self.batch_ += 1
             target = torch.tensor(
                 batch['y'],
                 dtype=torch.float32,
@@ -858,6 +858,7 @@ class LabelingTask(Trainer):
             weight = weight.to(device=self.device_)
         
         if grad_norm:
+            self.batch_ += 1
             loss = self.grad_norm(fX, target, mask)
             return {'loss':loss}
 
