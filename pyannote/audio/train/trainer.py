@@ -334,7 +334,7 @@ class Trainer:
         
         self.weights = [torch.tensor([1.], device=self.device_, requires_grad=False) for i in range(self.n_classes_)]
         self.weights_optimizer = get_optimizer(self.weights, lr=lr)
-        self.first_epoch_losses = None
+        self.first_epoch_losses = []
 
         
 

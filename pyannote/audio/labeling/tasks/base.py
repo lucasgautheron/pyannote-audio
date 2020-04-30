@@ -684,6 +684,8 @@ class LabelingTask(Trainer):
                 label = self.label_names[i]
                 loss = torch.mean(torch.tensor(self.task_batch_losses[i]))
                 loss_dict[label] = loss.cpu().numpy()
+                if self.epoch == 1:
+                    self.first_epoch_losses.append(loss.cpu().numpy())
             
                 weighted_loss = torch.mean(torch.tensor(self.weighted_task_batch_losses[i]))
                 weighted_loss_dict[label] = weighted_loss.cpu().numpy()
@@ -741,14 +743,14 @@ class LabelingTask(Trainer):
         # progress ratios
         relative_inv_rates = []
         if progress_weighting:
-            if self.first_epoch_losses is None:
-                self.first_epoch_losses = single_losses
+            #if self.batch_ == 1 and self.epoch_ == 1:
+            #    self.first_epoch_losses = single_losses
 
             unweighted_losses = []
             inverse_rates = []
             for i in range(len(single_losses)):
                 unweighted_losses.append(single_losses[i]/self.weights[i])
-                inverse_rates.append(unweighted_losses[i] / self.first_epoch_losses[i])
+                inverse_rates.append(unweighted_losses[i].clone().detach() / self.first_epoch_losses[i])
             avg_inv_rate = sum(inverse_rates)/float(len(inverse_rates))
             for i in range(len(single_losses)):
                 relative_inv_rates.append(inverse_rates[i] / avg_inv_rate)
@@ -843,9 +845,9 @@ class LabelingTask(Trainer):
         if weight is not None:
             weight = weight.to(device=self.device_)
         
-        if grad_norm:
+        if grad_norm and (self.epoch_ > 1):
             self.batch_ += 1
-            loss = self.grad_norm(fX, target, mask)
+            loss = self.grad_norm(fX, target, mask, progress_weighting=True)
             return {'loss':loss}
 
         return {
