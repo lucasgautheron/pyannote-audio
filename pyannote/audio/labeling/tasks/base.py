@@ -566,7 +566,6 @@ class LabelingTask(Trainer):
 
         loss_func_ = Function f(input, target, weight=None) -> loss value
         """
-        self.debug_out = open('debug_out.txt','w')
 
         self.task_ = self.model_.task
 
@@ -773,10 +772,6 @@ class LabelingTask(Trainer):
             if grad_norms[i] < desired_norms[i]:
                 w.grad *= -1.0
         
-        # debugging log 1/2 (can be deleted)
-        old_weights = [w.clone().detach().cpu().numpy()[0] for w in self.weights]
-        ##### end debugging log 1/2
-
         self.weights_optimizer.step()
         # don't let the weights get too small
         for i, w in enumerate(self.weights):
@@ -784,19 +779,6 @@ class LabelingTask(Trainer):
                 w -= (w-0.01)
         self.weights_optimizer.zero_grad()
 
-        # debugging log 2/2 (can be deleted)
-        for i in range(len(single_losses)):
-            label = self.label_names[i]
-            s = f'{label},'
-            s += str(grad_norms[i].clone().detach().cpu().numpy())+','
-            s += str(desired_norms[i][0].clone().detach().cpu().numpy())+','
-            s += str(old_weights[i])+','
-            s += str(self.weights[i].clone().detach().cpu().numpy()[0])+','
-            s += str(self.epoch_)+','+str(self.batch_)
-            self.debug_out.write(s+'\n')
-        self.debug_out.flush()
-        ##### end debugging log 2/2
-        
         # recompute gradients with new weights
         loss = self.loss_func_(fX,
                                target,
