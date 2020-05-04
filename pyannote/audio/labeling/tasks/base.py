@@ -682,10 +682,10 @@ class LabelingTask(Trainer):
             grad_norm_dict = {}
             for i in range(len(self.task_batch_losses)):
                 label = self.label_names[i]
-                loss = torch.mean(torch.tensor(self.task_batch_losses[i]))
+                loss = torch.mean(torch.tensor(self.task_batch_losses[i], device=self.device_, requires_grad=False))
                 loss_dict[label] = loss.cpu().numpy()
                 if self.epoch == 1:
-                    self.first_epoch_losses.append(loss.cpu().numpy())
+                    self.first_epoch_losses.append(loss)
             
                 weighted_loss = torch.mean(torch.tensor(self.weighted_task_batch_losses[i]))
                 weighted_loss_dict[label] = weighted_loss.cpu().numpy()
