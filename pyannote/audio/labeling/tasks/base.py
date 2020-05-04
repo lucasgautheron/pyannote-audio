@@ -590,6 +590,11 @@ class LabelingTask(Trainer):
             self.weighted_task_batch_losses = [[] for _ in range(len(self.model_.classes))]
             self.task_batch_grad_norms = [[] for _ in range(len(self.model_.classes))]
             self.task_batch_progress_rates = [[] for _ in range(len(self.model_.classes))]
+            self.class_weights = {'KCHI': torch.tensor([0.6433, 2.2444], device=self.device_),
+                                  'CHI': torch.tensor([0.5164, 15.7594], device=self.device_),
+                                  'MAL': torch.tensor([0.5049, 51.6005], device=self.device_),
+                                  'FEM': torch.tensor([0.8013, 1.3298], device=self.device_),
+                                  'SPEECH': torch.tensor([1.2841, 0.8188], device=self.device_)}
 
             def loss_func(input,
                           target,
@@ -602,26 +607,21 @@ class LabelingTask(Trainer):
                     losses = []
                     num_labels = target.size()[-1]
                     for i in range(num_labels):
-                        task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], reduction='mean')
+                        voice_type = self.model_.classes[i]
+                        class_weights = self.class_weights[voice_type][target[..., i].to(int)]
+                        task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], weight=class_weights, reduction='mean')
                         losses.append(task_i_loss)
 
-
-                    # weighting
-                    if weight is None:
-                        weighted_losses = losses
-                    else:
-                        weighted_losses = [weight[i]*losses[i] for i in range(num_labels)]
-                    aggregated_loss = sum(weighted_losses)/float(num_labels)
+                    aggregated_loss = sum(losses)/float(num_labels)
                     
                     if count_for_batch_loss:
                         for i in range(num_labels):
                             self.task_batch_losses[i].append(losses[i].clone().detach().cpu())
-                            self.weighted_task_batch_losses[i].append(weighted_losses[i].clone().detach().cpu())
                     
                     if not return_separate_losses:
                         return aggregated_loss
                     else:
-                        return aggregated_loss, weighted_losses
+                        return aggregated_loss, losses
                 else:
                     return torch.mean(
                         mask * F.binary_cross_entropy(input, target,
