@@ -661,14 +661,14 @@ class LabelingTask(Trainer):
                 weight_dict[self.label_names[i]] = weight
                 normed_weight_dict[self.label_names[i]] = weight/(weight_sum/len(self.weights))
 
-            self.tensorboard_.add_scalars(
-                                    f'train/loss_weights',
-                                    weight_dict,
-                                    global_step=self.epoch_)
-            self.tensorboard_.add_scalars(
-                                    f'train/normed_loss_weights',
-                                    normed_weight_dict,
-                                    global_step=self.epoch_)
+            #self.tensorboard_.add_scalars(
+            #                        f'train/loss_weights',
+            #                        weight_dict,
+            #                        global_step=self.epoch_)
+            #self.tensorboard_.add_scalars(
+            #                        f'train/normed_loss_weights',
+            #                        normed_weight_dict,
+            #                        global_step=self.epoch_)
             
 
     def on_epoch_end(self):
@@ -697,21 +697,21 @@ class LabelingTask(Trainer):
                 grad_norm_dict[label] = grad_norm.cpu().numpy()
 
             self.tensorboard_.add_scalars(
-                    f'train/unweighted-loss',
+                    f'train/loss',
                     loss_dict,
                     global_step=self.epoch_)
-            self.tensorboard_.add_scalars(
-                    f'train/weighted-loss',
-                    weighted_loss_dict,
-                    global_step=self.epoch_)
-            self.tensorboard_.add_scalars(
-                    f'train/grad-norms',
-                    grad_norm_dict,
-                    global_step=self.epoch_)
-            self.tensorboard_.add_scalars(
-                    f'train/rel-inv-rates',
-                    progress_ratio_dict,
-                    global_step=self.epoch_)
+            #self.tensorboard_.add_scalars(
+            #        f'train/weighted-loss',
+            #        weighted_loss_dict,
+            #        global_step=self.epoch_)
+            #self.tensorboard_.add_scalars(
+            #        f'train/grad-norms',
+            #        grad_norm_dict,
+            #        global_step=self.epoch_)
+            #self.tensorboard_.add_scalars(
+            #        f'train/rel-inv-rates',
+            #        progress_ratio_dict,
+            #        global_step=self.epoch_)
 
 
     def grad_norm(self, fX, target, mask, progress_weighting=False):
