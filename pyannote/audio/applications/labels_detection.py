@@ -49,6 +49,8 @@ from pyannote.database import get_annotated
 from pyannote.database import get_protocol
 from pyannote.metrics.detection import DetectionRecall
 from pyannote.metrics.detection import DetectionPrecision
+from pyannote.metrics.detection import DetectionPrecisionRecallFMeasure
+from pyannote.metrics.detection import DetectionErrorRate
 from sortedcontainers import SortedDict
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -89,6 +91,11 @@ class MultilabelDetection(BaseLabeling):
             r = recall(reference, hypothesis, uem=uem)
             return p, r
         else:
+            if type(metric) is list:
+                values = []
+                for m in metric:
+                    values.append(m(reference, hypothesis, uem=uem))
+                return values
             return metric(reference, hypothesis, uem=uem)
 
     def validation_criterion(self, protocol, precision=None, **kwargs):
@@ -96,6 +103,36 @@ class MultilabelDetection(BaseLabeling):
             return f'recall@{100 * precision:.2f}precision'
         else:
             return f'average_detection_fscore'
+
+
+    def compute_metrics(self, pipeline, considered_label, validation_data, n_jobs=1):
+        fscore_metric = DetectionPrecisionRecallFMeasure(collar=0.0,
+                                                         skip_overlap=False,
+                                                         parallel=True)
+        der_metric = DetectionErrorRate(collar=0.0,
+                                        skip_overlap=False,
+                                        parallel=True)
+
+        validate = partial(self.validate_helper_func,
+                           pipeline=pipeline,
+                           metric=[fscore_metric, der_metric],
+                           label=considered_label,
+                           precision=None)
+        if n_jobs > 1:
+            _ = self.pool_.map(validate, validation_data)
+        else:
+            for file in validation_data:
+                _ = validate(file)
+
+        metric_dict = {}
+        precision, recall, fscore = fscore_metric.compute_metrics()
+        metric_dict['precision'] = precision
+        metric_dict['recall'] = recall
+        metric_dict['fscore'] = fscore
+        metric_dict['der'] = der_metric.compute_metric(der_metric.accumulated_)
+        return metric_dict
+        
+
 
     def validate_epoch(self,
                        epoch,
@@ -197,7 +234,7 @@ class MultilabelDetection(BaseLabeling):
             return result
         else:
             # Detection Error Rate or Fscore validation
-            def fun(threshold, considered_label):
+            def fun(threshold, considered_label, return_all_metrics=False):
                 pipeline.instantiate({'onset': threshold,
                                       'offset': threshold,
                                       'min_duration_on': 0.100,
@@ -216,7 +253,10 @@ class MultilabelDetection(BaseLabeling):
                     for file in validation_data:
                         _ = validate(file)
 
-                return 1. - abs(metric)
+                if return_all_metrics:
+                    return metric.compute_metrics()
+                else:
+                    return 1. - abs(metric)
 
             result = {'metric': self.validation_criterion(None),
                       'minimize': False,
@@ -245,8 +285,16 @@ class MultilabelDetection(BaseLabeling):
                 result[considered_label]['value'] = float(1.-res.fun)
                 aggregated_metric += result[considered_label]['value']
 
+                metric_dict = self.compute_metrics(result[considered_label]['pipeline'], 
+                                                   considered_label, 
+                                                   validation_data, 
+                                                   n_jobs)
+                for name, value in metric_dict.items():
+                    result[considered_label][name] = value
+
             aggregated_metric /= len(label_names)
             result['value'] = aggregated_metric
+            result['metric-names'] = [k for k in metric_dict.keys()]
 
             return result
 
@@ -333,15 +381,16 @@ class MultilabelDetection(BaseLabeling):
 
             # send value to tensorboard
             # per label
-            for label in details['labels']:
-                writer.add_scalar(f'validate/{protocol}.{subset}/{label}/{metric}',
-                                details[label]['value'],
+            for m_name in details['metric-names']:
+                metric_dict = {}
+                for label in details['labels']:
+                    m_value = details[label][m_name]
+                    metric_dict[label] = m_value
+                metric_dict['avg'] = np.mean([v for v in metric_dict.values()])
+                writer.add_scalars(f'validate/{protocol}.{subset}/{m_name}',
+                                metric_dict,
                                 global_step=epoch)
-            # aggregated
-            writer.add_scalar(
-                f'validate/{protocol}.{subset}/{metric}',
-                values[epoch], global_step=epoch)
-            
+                
 
             # keep track of best value so far
             if minimize:
