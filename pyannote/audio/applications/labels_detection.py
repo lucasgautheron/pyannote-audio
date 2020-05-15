@@ -547,6 +547,9 @@ class MultilabelDetection(BaseLabeling):
             except NotImplementedError as e:
                 metric = None
 
+            der_metric = DetectionErrorRate(collar=0.0,
+                                            skip_overlap=False,
+                                            parallel=True)
 
             # Apply pipeline and dump output to RTTM files
             output_rttm = output_dir / f'{protocol_name}.{subset}.{label}.rttm'
@@ -574,6 +577,7 @@ class MultilabelDetection(BaseLabeling):
                                                                  labels_spec_[derivation_type][label])
                     uem = get_annotated(current_file)
                     _ = metric(reference, hypothesis, uem=uem)
+                    _ = der_metric(reference, hypothesis, uem=uem)
 
             # we continue looping through classes, even though metric is not define
             if metric is None:
@@ -582,4 +586,6 @@ class MultilabelDetection(BaseLabeling):
             output_eval = output_dir / f'{protocol_name}.{subset}.{label}.eval'
             with open(output_eval, 'w') as fp:
                 fp.write(str(metric))
+                fp.write("\n\n\n")
+                fp.write(str(der_metric))
 
