@@ -648,8 +648,6 @@ class LabelingTask(Trainer):
         if self.task_.is_multilabel_classification:
             self.batch_ = 0
             weight_dict = {}
-            normed_weight_dict = {}
-            weight_sum = sum(self.weights).clone().detach().cpu().numpy()
             for i in range(len(self.task_batch_losses)):
                 # clearing batch log memory
                 self.task_batch_losses[i].clear()
@@ -659,15 +657,10 @@ class LabelingTask(Trainer):
                 # weights logging
                 weight = self.weights[i].clone().detach().cpu().numpy()
                 weight_dict[self.label_names[i]] = weight
-                normed_weight_dict[self.label_names[i]] = weight/(weight_sum/len(self.weights))
 
             self.tensorboard_.add_scalars(
                                     f'train/loss_weights',
                                     weight_dict,
-                                    global_step=self.epoch_)
-            self.tensorboard_.add_scalars(
-                                    f'train/normed_loss_weights',
-                                    normed_weight_dict,
                                     global_step=self.epoch_)
             
 
