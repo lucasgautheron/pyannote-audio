@@ -595,8 +595,8 @@ class LabelingTask(Trainer):
             #                      'MAL': torch.tensor([0.5049, 51.6005], device=self.device_),
             #                      'FEM': torch.tensor([0.8013, 1.3298], device=self.device_),
             #                      'SPEECH': torch.tensor([1.2841, 0.8188], device=self.device_)}
-            self.class_weights = {'KCHI': torch.tensor([0., 0.], device=self.device_),
-                                  'CHI': torch.tensor([0., 0.], device=self.device_),
+            self.class_weights = {'KCHI': torch.tensor([1., 1.], device=self.device_),
+                                  'CHI': torch.tensor([1., 1.], device=self.device_),
                                   'MAL': torch.tensor([1., 1.], device=self.device_),
                                   'FEM': torch.tensor([1., 1.], device=self.device_),
                                   'SPEECH': torch.tensor([1., 1.], device=self.device_)}
