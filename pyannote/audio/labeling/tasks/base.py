@@ -590,16 +590,16 @@ class LabelingTask(Trainer):
             self.weighted_task_batch_losses = [[] for _ in range(len(self.model_.classes))]
             self.task_batch_grad_norms = [[] for _ in range(len(self.model_.classes))]
             self.task_batch_progress_rates = [[] for _ in range(len(self.model_.classes))]
-            #self.class_weights = {'KCHI': torch.tensor([0.6433, 2.2444], device=self.device_),
-            #                      'CHI': torch.tensor([0.5164, 15.7594], device=self.device_),
-            #                      'MAL': torch.tensor([0.5049, 51.6005], device=self.device_),
-            #                      'FEM': torch.tensor([0.8013, 1.3298], device=self.device_),
-            #                      'SPEECH': torch.tensor([1.2841, 0.8188], device=self.device_)}
-            self.class_weights = {'KCHI': torch.tensor([1., 1.], device=self.device_),
-                                  'CHI': torch.tensor([1., 1.], device=self.device_),
-                                  'MAL': torch.tensor([1., 1.], device=self.device_),
-                                  'FEM': torch.tensor([1., 1.], device=self.device_),
-                                  'SPEECH': torch.tensor([1., 1.], device=self.device_)}
+            self.class_weights = {'KCHI': torch.tensor([0.6433, 2.2444], device=self.device_),
+                                  'CHI': torch.tensor([0.5164, 15.7594], device=self.device_),
+                                  'MAL': torch.tensor([0.5049, 51.6005], device=self.device_),
+                                  'FEM': torch.tensor([0.8013, 1.3298], device=self.device_),
+                                  'SPEECH': torch.tensor([1.2841, 0.8188], device=self.device_)}
+            #self.class_weights = {'KCHI': torch.tensor([1., 1.], device=self.device_),
+            #                      'CHI': torch.tensor([1., 1.], device=self.device_),
+            #                      'MAL': torch.tensor([1., 1.], device=self.device_),
+            #                      'FEM': torch.tensor([1., 1.], device=self.device_),
+            #                      'SPEECH': torch.tensor([1., 1.], device=self.device_)}
 
             def loss_func(input,
                           target,
