@@ -587,20 +587,6 @@ class LabelingTask(Trainer):
             
             # store losses for each task separately to log them later. cleared every epoch
             self.task_batch_losses = [[] for _ in range(len(self.model_.classes))]
-            self.weighted_task_batch_losses = [[] for _ in range(len(self.model_.classes))]
-            self.task_batch_grad_norms = [[] for _ in range(len(self.model_.classes))]
-            self.task_batch_progress_rates = [[] for _ in range(len(self.model_.classes))]
-            self.class_weights = {'KCHI': torch.tensor([0.6433, 2.2444], device=self.device_),
-                                  'CHI': torch.tensor([0.5164, 15.7594], device=self.device_),
-                                  'MAL': torch.tensor([0.5049, 51.6005], device=self.device_),
-                                  'FEM': torch.tensor([0.8013, 1.3298], device=self.device_),
-                                  'SPEECH': torch.tensor([1.2841, 0.8188], device=self.device_)}
-            #self.class_weights = {'KCHI': torch.tensor([1., 1.], device=self.device_),
-            #                      'CHI': torch.tensor([1., 1.], device=self.device_),
-            #                      'MAL': torch.tensor([1., 1.], device=self.device_),
-            #                      'FEM': torch.tensor([1., 1.], device=self.device_),
-            #                      'SPEECH': torch.tensor([1., 1.], device=self.device_)}
-
             def loss_func(input,
                           target,
                           weight=None,
@@ -613,8 +599,7 @@ class LabelingTask(Trainer):
                     losses = []
                     for i in range(num_labels):
                         voice_type = self.model_.classes[i]
-                        class_weights = self.class_weights[voice_type][target[..., i].to(int)]
-                        task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], weight=class_weights, reduction='mean')
+                        task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], reduction='mean')
                         losses.append(task_i_loss)
 
                     aggregated_loss = sum(losses)/float(num_labels)
@@ -652,29 +637,9 @@ class LabelingTask(Trainer):
         """
         if self.task_.is_multilabel_classification:
             self.batch_ = 0
-            weight_dict = {}
-            normed_weight_dict = {}
-            weight_sum = sum(self.weights).clone().detach().cpu().numpy()
             for i in range(len(self.task_batch_losses)):
                 # clearing batch log memory
                 self.task_batch_losses[i].clear()
-                self.weighted_task_batch_losses[i].clear()
-                self.task_batch_progress_rates[i].clear()
-                self.task_batch_grad_norms[i].clear()
-                # weights logging
-                weight = self.weights[i].clone().detach().cpu().numpy()
-                weight_dict[self.label_names[i]] = weight
-                normed_weight_dict[self.label_names[i]] = weight/(weight_sum/len(self.weights))
-
-            #self.tensorboard_.add_scalars(
-            #                        f'train/loss_weights',
-            #                        weight_dict,
-            #                        global_step=self.epoch_)
-            #self.tensorboard_.add_scalars(
-            #                        f'train/normed_loss_weights',
-            #                        normed_weight_dict,
-            #                        global_step=self.epoch_)
-            
 
     def on_epoch_end(self):
         """Log per task loss to tensorboard for multilabel_classification
@@ -682,119 +647,17 @@ class LabelingTask(Trainer):
         if self.task_.is_multilabel_classification:
             # Log loss
             loss_dict = {}
-            weighted_loss_dict = {}
-            progress_ratio_dict = {}
-            grad_norm_dict = {}
             for i in range(len(self.task_batch_losses)):
                 label = self.label_names[i]
                 loss = torch.mean(torch.tensor(self.task_batch_losses[i], device=self.device_, requires_grad=False))
                 loss_dict[label] = loss.cpu().numpy()
-                if self.epoch == 1:
-                    self.first_epoch_losses.append(loss)
-            
-                weighted_loss = torch.mean(torch.tensor(self.weighted_task_batch_losses[i]))
-                weighted_loss_dict[label] = weighted_loss.cpu().numpy()
-            
-                rel_inv_rate = torch.mean(torch.tensor(self.task_batch_progress_rates[i]))
-                progress_ratio_dict[label] = rel_inv_rate.cpu().numpy()
-
-                grad_norm = torch.mean(torch.tensor(self.task_batch_grad_norms[i]))
-                grad_norm_dict[label] = grad_norm.cpu().numpy()
 
             self.tensorboard_.add_scalars(
                     f'train/loss',
                     loss_dict,
                     global_step=self.epoch_)
-            #self.tensorboard_.add_scalars(
-            #        f'train/weighted-loss',
-            #        weighted_loss_dict,
-            #        global_step=self.epoch_)
-            #self.tensorboard_.add_scalars(
-            #        f'train/grad-norms',
-            #        grad_norm_dict,
-            #        global_step=self.epoch_)
-            #self.tensorboard_.add_scalars(
-            #        f'train/rel-inv-rates',
-            #        progress_ratio_dict,
-            #        global_step=self.epoch_)
 
-
-    def grad_norm(self, fX, target, mask, progress_weighting=False):
-        """Weighting the loss functions by the GradNorm scheme
-        https://arxiv.org/abs/1711.02257
-        """
-        # Weights normalization
-        weights_sum = sum(self.weights)
-        for i, w in enumerate(self.weights):
-            #w.to(device=self.device_)
-            w /= weights_sum / len(self.weights)
-        
-        # Gradient norms
-        joint_loss, single_losses = self.loss_func_(fX,
-                                                    target,
-                                                    weight=self.weights,
-                                                    mask=mask,
-                                                    return_separate_losses=True,
-                                                    count_for_batch_loss=False)
-        grad_norms = []
-        grad_layer = self.model_.get_last_shared_layer()
-        for i, single_loss in enumerate(single_losses):
-            grad = autograd.grad(single_loss, [grad_layer.weight], retain_graph=True)[0]
-            grad_norms.append(torch.norm(grad, p=2))
-
-            self.task_batch_grad_norms[i].append(grad_norms[-1].clone().detach().cpu()) #logging
-        avg_grad_norm = sum(grad_norms)/float(len(grad_norms))
-
-        # progress ratios
-        relative_inv_rates = []
-        if progress_weighting:
-            #if self.batch_ == 1 and self.epoch_ == 1:
-            #    self.first_epoch_losses = single_losses
-
-            unweighted_losses = []
-            inverse_rates = []
-            for i in range(len(single_losses)):
-                unweighted_losses.append(single_losses[i]/self.weights[i])
-                inverse_rates.append(unweighted_losses[i].clone().detach() / self.first_epoch_losses[i])
-            avg_inv_rate = sum(inverse_rates)/float(len(inverse_rates))
-            for i in range(len(single_losses)):
-                relative_inv_rates.append(inverse_rates[i] / avg_inv_rate)
-        else:
-             for i in range(len(single_losses)):
-                 relative_inv_rates.append(torch.tensor([1.], device=self.device_))
-
-        for i in range(len(single_losses)):
-            # logging
-            self.task_batch_progress_rates[i].append(relative_inv_rates[i].clone().detach().cpu())
-
-        # desired gradient norms
-        desired_norms = []
-        alpha = 1.0
-        for i in range(len(single_losses)):
-            desired_norms.append(avg_grad_norm * relative_inv_rates[i]**alpha)
-        
-        # adapt weights to meet or get closer to desired gradient norms
-        for i, w in enumerate(self.weights):
-            w.grad = grad_norms[i]/w
-            if grad_norms[i] < desired_norms[i]:
-                w.grad *= -1.0
-        
-        self.weights_optimizer.step()
-        # don't let the weights get too small
-        for i, w in enumerate(self.weights):
-            if w < 0.01:
-                w -= (w-0.01)
-        self.weights_optimizer.zero_grad()
-
-        # recompute gradients with new weights
-        loss = self.loss_func_(fX,
-                               target,
-                               weight=self.weights,
-                               mask=mask,
-                               return_separate_losses=False)
-        return loss
-
-    def batch_loss(self, batch, grad_norm=False):
+    def batch_loss(self, batch):
         """Compute loss for current `batch`
 
         Parameters
@@ -850,11 +713,6 @@ class LabelingTask(Trainer):
         if weight is not None:
             weight = weight.to(device=self.device_)
         
-        if grad_norm and (self.epoch_ > 1):
-            self.batch_ += 1
-            loss = self.grad_norm(fX, target, mask, progress_weighting=True)
-            return {'loss':loss}
-
         return {
             'loss': self.loss_func_(fX, target,
                                     weight=weight,

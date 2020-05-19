@@ -329,13 +329,6 @@ class Trainer:
         self.optimizer_ = get_optimizer(self.parameters(), lr=lr)
         self.base_learning_rate_ = learning_rate
 
-        # GradNorm weights and weights optimizer
-        # (quick 'n dirty. This should be in an inherited fit_iter in MultilabelDetection class)
-        
-        self.weights = [torch.tensor([1.], device=self.device_, requires_grad=False) for i in range(self.n_classes_)]
-        self.weights_optimizer = get_optimizer(self.weights, lr=lr)
-        self.first_epoch_losses = []
-
         
 
         # make sure that 'train_dir' directory does not exist when
@@ -447,7 +440,7 @@ class Trainer:
                 batch = callbacks.on_batch_start(self, batch)
 
                 # FORWARD PASS + LOSS COMPUTATION
-                loss = self.batch_loss(batch, grad_norm=False)
+                loss = self.batch_loss(batch)
 
                 # BACKWARD PASS
                 loss['loss'].backward()
