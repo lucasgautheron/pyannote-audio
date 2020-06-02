@@ -43,6 +43,8 @@ from pyannote.audio.models.models import RNN
 from pyannote.core import Timeline, Annotation, SlidingWindowFeature
 from pyannote.core.utils.numpy import one_hot_encoding
 from pyannote.database import get_annotated, get_protocol
+from pyannote.core.utils.random import random_segment
+from pyannote.core.utils.random import random_subsegment
 
 
 
@@ -126,6 +128,7 @@ class MultilabelDetectionGenerator(LabelingTaskGenerator):
                  per_epoch:float = None):
 
         self.labels_spec = labels_spec
+        self.mixup = True
         super().__init__(feature_extraction,
                          protocol, subset=subset,
                          resolution=resolution,
@@ -178,6 +181,72 @@ class MultilabelDetectionGenerator(LabelingTaskGenerator):
             specs[key] = {'classes': classes}
 
         return specs
+
+    def _random_samples(self):
+        """Random samples
+
+        Returns
+        -------
+        samples : generator
+            Generator that yields {'X': ..., 'y': ...} samples indefinitely.
+        """
+
+        uris = list(self.data_)
+        durations = np.array([self.data_[uri]['duration'] for uri in uris])
+        probabilities = durations / np.sum(durations)
+
+        while True:
+
+            # choose file at random with probability
+            # proportional to its (annotated) duration
+            uri = uris[np.random.choice(len(uris), p=probabilities)]
+
+            datum = self.data_[uri]
+            current_file = datum['current_file']
+
+            # choose one segment at random with probability
+            # proportional to its duration
+            segment = next(random_segment(datum['segments'], weighted=True))
+
+            # choose fixed-duration subsegment at random
+            subsegment = next(random_subsegment(segment, self.duration))
+
+            X = self.feature_extraction.crop(current_file,
+                                             subsegment,
+                                             mode='center',
+                                             fixed=self.duration)
+
+            y = self.crop_y(datum['y'],
+                            subsegment)
+
+            if self.mixup:
+                # Sample another file & segment to augment the first one with.
+                uri = uris[np.random.choice(len(uris), p=probabilities)]
+                datum = self.data_[uri]
+                current_file = datum['current_file']
+                segment = next(random_segment(datum['segments'], weighted=True))
+                subsegment = next(random_subsegment(segment, self.duration))
+                X2 = self.feature_extraction.crop(current_file,
+                                                subsegment,
+                                                mode='center',
+                                                fixed=self.duration)
+                y2 = self.crop_y(datum['y'],
+                                subsegment)
+                alpha = np.random.rand()
+                X = alpha * X + (1-alpha) * X2
+                y = alpha * y + (1-alpha) * y2
+
+            sample = {'X': X, 'y': y}
+
+            if self.mask is not None:
+                mask = self.crop_y(current_file[self.mask],
+                                   subsegment)
+                sample['mask'] = mask
+
+            #for key, classes in self.file_labels_.items():
+            #    sample[key] = classes.index(current_file[key])
+
+            yield sample
 
 
 class MultilabelDetection(LabelingTask):
