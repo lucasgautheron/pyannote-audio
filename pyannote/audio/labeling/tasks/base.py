@@ -595,14 +595,15 @@ class LabelingTask(Trainer):
                           count_for_batch_loss=True):
                 if mask is None:
                     num_labels = target.size()[-1]
-                    # label-wise cross entropy
-                    losses = []
-                    for i in range(num_labels):
-                        voice_type = self.model_.classes[i]
-                        task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], reduction='mean')
-                        losses.append(task_i_loss)
-
-                    aggregated_loss = sum(losses)/float(num_labels)
+                    # Label-wise F1score-loss
+                    # get F1-loss per instance per class (sum only over frames dimension)
+                    losses = ((input*target).sum(dim=1) / ((input*input).sum(dim=1) + (target*target).sum(dim=1)))
+                    # average over the batch dimension
+                    losses = losses.mean(dim=0)
+                    # Minimize loss vs. maximize F1score
+                    losses = losses * -1
+                    # average over the labels
+                    aggregated_loss = losses.mean()
                     
                     if count_for_batch_loss:
                         for i in range(num_labels):
@@ -612,11 +613,6 @@ class LabelingTask(Trainer):
                         return aggregated_loss
                     else:
                         return aggregated_loss, losses
-                else:
-                    return torch.mean(
-                        mask * F.binary_cross_entropy(input, target,
-                                                      weight=weight,
-                                                      reduction='none'))
 
         if self.task_.is_regression:
             def loss_func(input, target, weight=None, mask=None):
