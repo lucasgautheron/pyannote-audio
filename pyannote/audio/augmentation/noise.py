@@ -33,6 +33,7 @@
 
 import random
 import numpy as np
+import librosa
 from pyannote.core import Segment
 from pyannote.audio.features.utils import RawAudio
 from pyannote.audio.features.utils import get_audio_duration
@@ -134,6 +135,28 @@ class AddNoise(Augmentation):
         alpha = np.exp(-np.log(10) * snr / 20)
 
         return normalize(original) + alpha * noise
+
+
+class PitchShift(Augmentation):
+    
+    def __init__(self, with_noise, min_shift, max_shift):
+        super().__init__()
+        self.with_noise = with_noise
+        self.min_shift = min_shift
+        self.max_shift = max_shift
+        if with_noise:
+            self.add_noise = AddNoise()
+
+
+    def __call__(self, original, sample_rate):
+        rnd_shift = np.random.randint(self.min_shift, self.max_shift+1)
+        augmented = librosa.effects.pitch_shift(original.reshape(-1), sr=sample_rate, n_steps=rnd_shift)
+        augmented = augmented.reshape(len(augmented), 1)
+        if self.with_noise:
+            augmented = self.add_noise(augmented, sample_rate)
+            return augmented
+        else:
+            return normalize(augmented)
 
 
 class AddNoiseFromGaps(Augmentation):
