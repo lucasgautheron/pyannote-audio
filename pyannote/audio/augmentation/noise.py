@@ -139,18 +139,22 @@ class AddNoise(Augmentation):
 
 class PitchShift(Augmentation):
     
-    def __init__(self, with_noise, min_shift, max_shift):
+    def __init__(self, with_noise, bins_per_octave, min_shift, max_shift):
         super().__init__()
         self.with_noise = with_noise
         self.min_shift = min_shift
         self.max_shift = max_shift
+        self.bins_per_octave = bins_per_octave
         if with_noise:
             self.add_noise = AddNoise()
 
 
     def __call__(self, original, sample_rate):
         rnd_shift = np.random.randint(self.min_shift, self.max_shift+1)
-        augmented = librosa.effects.pitch_shift(original.reshape(-1), sr=sample_rate, n_steps=rnd_shift)
+        augmented = librosa.effects.pitch_shift(original.reshape(-1), 
+                                                sr=sample_rate, 
+                                                bins_per_octave=self.bins_per_octave,
+                                                n_steps=rnd_shift)
         augmented = augmented.reshape(len(augmented), 1)
         if self.with_noise:
             augmented = self.add_noise(augmented, sample_rate)
