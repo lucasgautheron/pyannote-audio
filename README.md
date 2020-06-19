@@ -18,13 +18,14 @@
 
 The instructions below assume that `pytorch` has been installed using the instructions from https://pytorch.org.
 
-Until a proper release of `pyannote.audio` is available on `PyPI`, it must be installed from source using the develop branch of the official repository:
+Until a proper release of `pyannote.audio` is available on `PyPI`, it must be installed from source:
 
 ```bash
 $ git clone https://github.com/pyannote/pyannote-audio.git
 $ cd pyannote-audio
-$ git checkout develop
-$ pip install .
+$ git checkout voice_type_classifier
+$ conda env create -f env.yml   # This will create a conda environment called `pyannote`
+$ conda activate pyannote       # You must activate this environment each time you want to run a pyannote command
 ```
 
 ## Documentation
