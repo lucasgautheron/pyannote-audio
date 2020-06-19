@@ -617,7 +617,7 @@ class LabelingTask(Trainer):
 
                         losses.append(task_i_loss*weight)
 
-                    aggregated_loss = torch.sum(torch.tensor(losses, device=self.device_, requires_grad=True))
+                    aggregated_loss = sum(losses)/len(losses)
                     
                     if count_for_batch_loss:
                         for i in range(num_labels):
