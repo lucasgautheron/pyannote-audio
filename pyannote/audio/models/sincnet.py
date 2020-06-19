@@ -83,7 +83,8 @@ class SincConv1d(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size,
                  sample_rate=16000, min_low_hz=50, min_band_hz=50,
-                 stride=1, padding=0, dilation=1, bias=False, groups=1):
+                 stride=1, padding=0, dilation=1, bias=False, groups=1,
+                 initial_filters=None):
 
         super().__init__()
 
@@ -118,20 +119,29 @@ class SincConv1d(nn.Module):
         self.min_low_hz = min_low_hz
         self.min_band_hz = min_band_hz
 
-        # initialize filterbanks such that they are equally spaced in Mel scale
-        low_hz = 30
-        high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
+        if initial_filters is None:
+            # initialize filterbanks such that they are equally spaced in Mel scale
+            low_hz = 30
+            high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
 
-        mel = np.linspace(self.to_mel(low_hz),
-                          self.to_mel(high_hz),
-                          self.out_channels + 1)
-        hz = self.to_hz(mel)
+            mel = np.linspace(self.to_mel(low_hz),
+                            self.to_mel(high_hz),
+                            self.out_channels + 1)
+            hz = self.to_hz(mel)
 
-        # filter lower frequency (out_channels, 1)
-        self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
+            # filter lower frequency (out_channels, 1)
+            self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
 
-        # filter frequency band (out_channels, 1)
-        self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
+            # filter frequency band (out_channels, 1)
+            self.band_hz_ = nn.Parameter(torch.Tensor(np.diff(hz)).view(-1, 1))
+        else:
+            # initial_filters is a list of (low_hz, high_hz) tuples
+            assert len(initial_filters) == out_channels
+            self.low_hz = [f[0]-self.min_low_hz for f in initial_filters]
+            self.band_hz = [f[1]-f[0]-self.min_band_hz for f in initial_filters]
+            self.low_hz_ = nn.Parameter(torch.Tensor(self.low_hz).view(-1,1))
+            self.band_hz_ = nn.Parameter(torch.Tensor(self.band_hz).view(-1,1))
+            
 
         # Half Hamming half window
         n_lin=torch.linspace(0, self.kernel_size / 2 - 1,
@@ -249,6 +259,7 @@ class SincNet(nn.Module):
                  out_channels=[80, 60, 60],
                  kernel_size: List[int] = [251, 5, 5],
                  stride=[1, 1, 1],
+                 initial_filters=None,
                  max_pool=[3, 3, 3],
                  instance_normalize=True,
                  activation='leaky_relu',
@@ -289,6 +300,9 @@ class SincNet(nn.Module):
         # Max-pooling parameters
         self.max_pool = max_pool
         self.max_pool1d_ = nn.ModuleList([])
+        
+        # Filter initialization
+        self.initial_filters = initial_filters
 
         # Instance normalization
         self.instance_normalize = instance_normalize
@@ -320,6 +334,7 @@ class SincNet(nn.Module):
                                     min_low_hz=self.min_low_hz,
                                     min_band_hz=self.min_band_hz,
                                     stride=stride,
+                                    initial_filters=self.initial_filters,
                                     padding=0,
                                     dilation=1,
                                     bias=False,
