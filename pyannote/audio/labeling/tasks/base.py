@@ -568,6 +568,7 @@ class LabelingTask(Trainer):
         """
 
         self.task_ = self.model_.task
+    
 
         if self.task_.is_multiclass_classification:
 
@@ -593,16 +594,30 @@ class LabelingTask(Trainer):
                           mask=None,
                           return_separate_losses=False,
                           count_for_batch_loss=True):
+
                 if mask is None:
                     num_labels = target.size()[-1]
                     # label-wise cross entropy
                     losses = []
-                    for i in range(num_labels):
-                        voice_type = self.model_.classes[i]
-                        task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], reduction='mean')
-                        losses.append(task_i_loss)
+                    for i,lbl in enumerate(self.label_names):
+                        if lbl == 'SPEECH':
+                            task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], reduction='mean')
+                            weight = 1. # all frames contribute to the speech loss
+                        else:
+                            # only frames with speech contribute to MAL/FEM/CHI losses
+                            speech_frames = (target[..., self.label_names.index('SPEECH')] == True).float()
+                            num_speech_frames = torch.sum(speech_frames)
+                            if num_speech_frames > 0:
+                                task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], weight=speech_frames, reduction='sum')
+                                task_i_loss = task_i_loss / num_speech_frames
+                            else:
+                                task_i_loss = torch.tensor([0.], device=self.device_, requires_grad=True)
+                            num_total_frames = input.shape[0]*input.shape[1]
+                            weight = num_speech_frames / num_total_frames
 
-                    aggregated_loss = sum(losses)/float(num_labels)
+                        losses.append(task_i_loss*weight)
+
+                    aggregated_loss = torch.sum(torch.tensor(losses, device=self.device_, requires_grad=True))
                     
                     if count_for_batch_loss:
                         for i in range(num_labels):
