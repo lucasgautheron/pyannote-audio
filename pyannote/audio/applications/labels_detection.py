@@ -44,6 +44,7 @@ from pyannote.audio.features.wrapper import Wrapper
 from pyannote.audio.labeling.tasks import MultilabelDetection as MultilabelTask
 from pyannote.audio.pipeline import MultilabelDetection \
     as MultilabelDetectionPipeline
+from pyannote.audio.pipeline.labels_detection import mask_features
 from pyannote.database import FileFinder
 from pyannote.database import get_annotated
 from pyannote.database import get_protocol
@@ -104,7 +105,6 @@ class MultilabelDetection(BaseLabeling):
         else:
             return f'average_detection_fscore'
 
-
     def compute_metrics(self, pipeline, considered_label, validation_data, n_jobs=1):
         fscore_metric = DetectionPrecisionRecallFMeasure(collar=0.0,
                                                          skip_overlap=False,
@@ -132,6 +132,58 @@ class MultilabelDetection(BaseLabeling):
         metric_dict['der'] = der_metric.compute_metric(der_metric.accumulated_)
         return metric_dict
         
+    def find_best_threshold(self, label_names, considered_label, validation_data, n_jobs, precision):
+        pipeline = self.Pipeline(scores="@scores",
+                                 fscore=True,
+                                 label_list=label_names,
+                                 considered_label=considered_label)
+
+        def fun(threshold, considered_label, return_all_metrics=False):
+            pipeline.instantiate({'onset': threshold,
+                                    'offset': threshold,
+                                    'min_duration_on': 0.100,
+                                    'min_duration_off': 0.100,
+                                    'pad_onset': 0.,
+                                    'pad_offset': 0.})
+            metric = pipeline.get_metric(parallel=True)
+            validate = partial(self.validate_helper_func,
+                               pipeline=pipeline,
+                               metric=metric,
+                               label=considered_label,
+                               precision=precision)
+            if n_jobs > 1:
+                _ = self.pool_.map(validate, validation_data)
+            else:
+                for file in validation_data:
+                    _ = validate(file)
+
+            if return_all_metrics:
+                return metric.compute_metrics()
+            else:
+                return 1. - abs(metric)
+
+        res = scipy.optimize.minimize_scalar(
+            fun, bounds=(0., 1.), method='bounded', options={'maxiter': 10}, args=considered_label)
+
+        threshold = res.x.item()
+        result = {}
+        result['pipeline'] = pipeline.instantiate({'onset': threshold,
+                                                    'offset': threshold,
+                                                    'min_duration_on': 0.100,
+                                                    'min_duration_off': 0.100,
+                                                    'pad_onset': 0.,
+                                                    'pad_offset': 0.})
+        result['metric'] = 'detection_fscore'
+        result['value'] = float(1.-res.fun)
+
+        metric_dict = self.compute_metrics(result['pipeline'],
+                                           considered_label,
+                                           validation_data,
+                                           n_jobs)
+        for name, value in metric_dict.items():
+            result[name] = value
+
+        return result, metric_dict
 
 
     def validate_epoch(self,
@@ -234,63 +286,35 @@ class MultilabelDetection(BaseLabeling):
             return result
         else:
             # Detection Error Rate or Fscore validation
-            def fun(threshold, considered_label, return_all_metrics=False):
-                pipeline.instantiate({'onset': threshold,
-                                      'offset': threshold,
-                                      'min_duration_on': 0.100,
-                                      'min_duration_off': 0.100,
-                                      'pad_onset': 0.,
-                                      'pad_offset': 0.})
-                metric = pipeline.get_metric(parallel=True)
-                validate = partial(self.validate_helper_func,
-                                   pipeline=pipeline,
-                                   metric=metric,
-                                   label=considered_label,
-                                   precision=precision)
-                if n_jobs > 1:
-                    _ = self.pool_.map(validate, validation_data)
-                else:
-                    for file in validation_data:
-                        _ = validate(file)
-
-                if return_all_metrics:
-                    return metric.compute_metrics()
-                else:
-                    return 1. - abs(metric)
-
             result = {'metric': self.validation_criterion(None),
                       'minimize': False,
                       'labels': label_names}
 
+            # Find best thresholds for the different labels
+            # SPEECH
             aggregated_metric = 0
+            considered_label = 'SPEECH'
+            res, _ = self.find_best_threshold(label_names,
+                                           considered_label,
+                                           validation_data,
+                                           n_jobs,
+                                           precision)
+            result[considered_label] = res
+            aggregated_metric += res['value']
+            # Suppress everything outside the SPEECH hypothesis
+            for current_file in validation_data:
+                speech_hypothesis = result['SPEECH']['pipeline'](current_file)
+                mask_features(current_file['scores'].data,
+                              current_file['scores'].sliding_window.step,
+                              speech_hypothesis)
+
+            # Other labels
             for considered_label in label_names:
-                pipeline = self.Pipeline(scores="@scores",
-                                         fscore=True,
-                                         label_list=label_names,
-                                         considered_label=considered_label)
-
-                res = scipy.optimize.minimize_scalar(
-                    fun, bounds=(0., 1.), method='bounded', options={'maxiter': 10}, args=considered_label)
-
-                threshold = res.x.item()
-
-                result[considered_label] = {}
-                result[considered_label]['pipeline'] = pipeline.instantiate({'onset': threshold,
-                                                                             'offset': threshold,
-                                                                             'min_duration_on': 0.100,
-                                                                             'min_duration_off': 0.100,
-                                                                             'pad_onset': 0.,
-                                                                             'pad_offset': 0.})
-                result[considered_label]['metric'] = 'detection_fscore'
-                result[considered_label]['value'] = float(1.-res.fun)
-                aggregated_metric += result[considered_label]['value']
-
-                metric_dict = self.compute_metrics(result[considered_label]['pipeline'], 
-                                                   considered_label, 
-                                                   validation_data, 
-                                                   n_jobs)
-                for name, value in metric_dict.items():
-                    result[considered_label][name] = value
+                if considered_label == 'SPEECH':
+                    continue
+                res, metric_dict = self.find_best_threshold(label_names, considered_label, validation_data, n_jobs, precision)
+                result[considered_label] = res
+                aggregated_metric += res['value']
 
             aggregated_metric /= len(label_names)
             result['value'] = aggregated_metric
@@ -518,8 +542,11 @@ class MultilabelDetection(BaseLabeling):
         # Dirty hack to check if the validation optimized fscore or detection error rate
         # In which case, we'll use the same metric
         fscore = 'detection_fscore' in str(pretrained.validate_dir).split('/')[-2]
-
-        for label in precomputed.classes_:
+        label_names = precomputed.classes_
+        del label_names[label_names.index('SPEECH')]
+        label_names.insert(0, 'SPEECH')
+        speech_pipeline = None
+        for label in label_names:
 
             # Initialization of the pipeline associated to this label
             pipeline = Pipeline(scores=output_dir,
@@ -528,6 +555,8 @@ class MultilabelDetection(BaseLabeling):
                                 fscore=fscore)
 
             pipeline.instantiate(getattr(pretrained, "{}_pipeline_params_".format(label)))
+            if label == 'SPEECH':
+                speech_pipeline = pipeline
 
             # Decides which type of label we're currently handling
             # so that we know how to derive the reference
@@ -555,7 +584,12 @@ class MultilabelDetection(BaseLabeling):
             output_rttm = output_dir / f'{protocol_name}.{subset}.{label}.rttm'
             with open(output_rttm, 'w') as fp:
                 for current_file in getattr(protocol, subset)():
-                    hypothesis = pipeline(current_file)
+                    # mask file by speech hypothesis
+                    speech_hypothesis = None
+                    if label != 'SPEECH':
+                        speech_hypothesis = speech_pipeline(current_file)
+
+                    hypothesis = pipeline(current_file, speech_hypothesis)
                     pipeline.write_rttm(fp, hypothesis)
 
                     # compute evaluation metric (when possible)
@@ -588,4 +622,3 @@ class MultilabelDetection(BaseLabeling):
                 fp.write(str(metric))
                 fp.write("\n\n\n")
                 fp.write(str(der_metric))
-
