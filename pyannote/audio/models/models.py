@@ -40,6 +40,7 @@ from pyannote.audio.train.model import Model
 from pyannote.audio.train.model import Resolution
 from pyannote.audio.train.model import RESOLUTION_CHUNK
 from pyannote.audio.train.model import RESOLUTION_FRAME
+from pyannote.core import SlidingWindow
 
 
 class RNN(nn.Module):
@@ -658,3 +659,290 @@ class SincTDNN(Model):
             return self.embedding_.dimension
 
         return Model.dimension.fget(self)
+
+
+class CNN(nn.Module):
+
+    def __init__(self, 
+                 n_mels,
+                 sample_rate,
+                 mel_duration, 
+                 mel_step, 
+                 transform_mel_to_channels,
+                 layers, 
+                 output_dimension):
+        super(CNN, self).__init__()
+        self.n_mels = n_mels
+        self.output_dimension = output_dimension
+        self.mel_duration = mel_duration
+        self.mel_step = mel_step
+        self.transform_mel_to_channels = transform_mel_to_channels
+        self.layers = []
+
+        self.cnn = nn.Sequential()
+        channels = 1 if not transform_mel_to_channels else n_mels
+        for i in range(len(layers)):
+            params = {}
+            if 'params' in layers[i]:
+                params = layers[i]['params']
+            if layers[i]['name'] == 'Conv2dBlock':
+                conv = nn.Conv2d(in_channels=channels, 
+                                 out_channels=params['conv_out_channels'],
+                                 kernel_size=params['conv_kernel'])
+                channels = params['conv_out_channels']
+                batchNorm = nn.BatchNorm2d(num_features=channels)
+                relu = nn.ReLU()
+                pool = nn.MaxPool2d(kernel_size=params['pool_kernel'])
+                self.cnn.add_module(str(i)+'-Conv2dBlock-Conv', conv)
+                self.cnn.add_module(str(i)+'-Conv2dBlock-BN', batchNorm)
+                self.cnn.add_module(str(i)+'-Conv2dBlock-ReLU', relu)
+                self.cnn.add_module(str(i)+'-Conv2dBlock-MaxPool', pool)
+                self.layers.append(conv)
+                self.layers.append(batchNorm)
+                self.layers.append(relu)
+                self.layers.append(pool)
+            else:
+                if layers[i]['name'] == 'Conv2d':
+                    layer = nn.Conv2d(in_channels=channels, **params)
+                    channels = params['out_channels']
+                elif layers[i]['name'] == 'MaxPool2d':
+                    layer = nn.MaxPool2d(**params)
+                elif layers[i]['name'] == 'Dropout':
+                    layer = nn.Dropout(**params)
+                elif layers[i]['name'] == 'BatchNorm2d':
+                    layer = nn.BatchNorm2d(num_features=channels, **params)
+                elif layers[i]['name'] == 'ReLU':
+                    layer = nn.ReLU(**params)
+                else:
+                    print('Unrecognized layer name', layers[i]['name'])
+                    assert False
+                self.layers.append(layer)
+                self.cnn.add_module(str(i)+layers[i]['name'], layer)
+    
+    def forward(self, x):
+        if self.transform_mel_to_channels:
+            x = x.permute(0,3,2,1)
+        
+        for l in self.layers:
+            x = l(x)
+        #x = self.cnn(x)
+
+        # shape [batch_size, out_channels, frames/time direction, frequency direction]
+        # transfer to
+        # shape [batch_size, frames/time direction, out_channels*frequency direction]
+        # for RNN input
+        assert x.shape[1]*x.shape[3] == self.dimension
+        x = x.permute(0, 2, 1, 3)
+        x = x.reshape(x.shape[0], x.shape[1], x.shape[2]*x.shape[3])
+        return x
+
+    @staticmethod
+    def get_resolution(layers, mel_duration, mel_step, sample_rate, **kwargs):
+        receptive_field = 1
+        step = 1
+        for layer in layers:
+            if layer['name'] == 'Conv2d':
+                kernel_time_dir = layer['params']['kernel_size'][0]
+                receptive_field = receptive_field + (kernel_time_dir-1)*step
+            elif layer['name'] == 'MaxPool2d':
+                kernel_time_dir = layer['params']['kernel_size'][0]
+                receptive_field = receptive_field + (kernel_time_dir-1)*step
+                stride_time_dir = kernel_time_dir
+                step *= stride_time_dir
+            if layer['name'] == 'Conv2dBlock':
+                kernel_time_dir = layer['params']['conv_kernel'][0]
+                receptive_field = receptive_field + (kernel_time_dir-1)*step
+                
+                kernel_time_dir = layer['params']['pool_kernel'][0]
+                receptive_field = receptive_field + (kernel_time_dir-1)*step
+                stride_time_dir = kernel_time_dir
+                step *= stride_time_dir
+
+        mel_receptive_field = (int(mel_duration*sample_rate)-1)/sample_rate
+        mel_step = int(mel_step*sample_rate)/sample_rate
+        return SlidingWindow(duration=mel_receptive_field*receptive_field,
+                             step=mel_step*step,
+                             start=0.)
+
+    def dimension():
+        doc = "Output features dimension."
+        def fget(self):
+            return self.output_dimension
+        return locals()
+    dimension = property(**dimension())
+
+
+class CRNN(Model):
+    """features -> CNN -> RNN -> FC -> output
+
+    Parameters
+    ----------
+    cnn : `dict`, optional
+    rnn : `dict`, optional
+        Recurrent network parameters. Defaults to `RNN` default parameters.
+    ff : `dict`, optional
+        Feed-forward layers parameters. Defaults to `FF` default parameters.
+    embedding : `dict`, optional
+        Embedding parameters. Defaults to `Embedding` default parameters. This
+        only has effect when model is used for representation learning.
+    """
+
+    @staticmethod
+    def get_alignment(cnn=None, **kwargs):
+        return 'center'
+
+    supports_packed = False
+
+    @staticmethod
+    def get_resolution(cnn : Optional[dict] = None,
+                       rnn : Optional[dict] = None,
+                       **kwargs) -> Resolution:
+        """Get sliding window used for feature extraction
+
+        Parameters
+        ----------
+        cnn : dict, optional
+        rnn : dict, optional
+
+        Returns
+        -------
+        sliding_window : `pyannote.core.SlidingWindow` or {`window`, `frame`}
+            Returns RESOLUTION_CHUNK if model returns one vector per input
+            chunk, RESOLUTION_FRAME if model returns one vector per input
+            frame, and specific sliding window otherwise.
+        """
+
+        if rnn is None:
+            rnn = {'pool': None}
+
+        if rnn.get('pool', None) is not None:
+            return RESOLUTION_CHUNK
+
+        if cnn is None:
+            cnn = {'skip': False}
+
+        if cnn.get('skip', False):
+            return RESOLUTION_FRAME
+
+        return CNN.get_resolution(**cnn, **kwargs)
+        
+
+    def init(self,
+             cnn : Optional[dict] = None,
+             rnn : Optional[dict] = None,
+             ff : Optional[dict] = None,
+             embedding : Optional[dict] = None):
+        """waveform -> SincNet -> RNN [-> merge] [-> time_pool] -> FC -> output
+
+        Parameters
+        ----------
+        cnn : `dict`, optional
+            SincNet parameters. Defaults to `pyannote.audio.models.sincnet.SincNet`
+            default parameters. Use {'skip': True} to use handcrafted features
+            instead of waveforms: [ waveform -> SincNet -> RNN -> ... ] then
+            becomes [ features -> RNN -> ...].
+        rnn : `dict`, optional
+            Recurrent network parameters. Defaults to `RNN` default parameters.
+        ff : `dict`, optional
+            Feed-forward layers parameters. Defaults to `FF` default parameters.
+        embedding : `dict`, optional
+            Embedding parameters. Defaults to `Embedding` default parameters. This
+            only has effect when model is used for representation learning.
+        """
+
+        n_features = self.n_features
+
+        self.cnn = cnn
+        
+        self.cnn_ = CNN(**cnn)
+        n_features = self.cnn_.dimension
+
+        if rnn is None:
+            rnn = dict()
+        self.rnn = rnn
+        self.rnn_ = RNN(n_features, **rnn)
+        n_features = self.rnn_.dimension
+
+        if ff is None:
+            ff = dict()
+        self.ff = ff
+        self.ff_ = FF(n_features, **ff)
+        n_features = self.ff_.dimension
+
+        if self.task.is_representation_learning:
+            if embedding is None:
+                embedding = dict()
+            self.embedding = embedding
+            self.embedding_ = Embedding(n_features, **embedding)
+            return
+
+        self.linear_ = nn.Linear(n_features, len(self.classes), bias=True)
+        self.activation_ = self.task.default_activation
+
+    def forward(self, melspectrograms, return_intermediate=None):
+        """Forward pass
+
+        Parameters
+        ----------
+        waveforms : (batch_size, n_samples, 1) `torch.Tensor`
+            Batch of waveforms. In case SincNet is skipped, a tensor with shape
+            (batch_size, n_samples, n_features) is expected.
+        return_intermediate : `int`, optional
+            Index of RNN layer. Returns RNN intermediate hidden state.
+            Defaults to only return the final output.
+
+        Returns
+        -------
+        output : `torch.Tensor`
+            Final network output.
+        intermediate : `torch.Tensor`
+            Intermediate network output (only when `return_intermediate`
+            is provided).
+        """
+        shape = melspectrograms.shape
+        melspectrograms = melspectrograms.view(shape[0],1,shape[1],shape[2]) # add channel dimension
+        output = self.cnn_(melspectrograms)
+
+        if return_intermediate is None:
+            output = self.rnn_(output)
+        else:
+            if return_intermediate == 0:
+                intermediate = output
+                output = self.rnn_(output)
+            else:
+                return_intermediate -= 1
+                # get RNN final AND intermediate outputs
+                output, intermediate = self.rnn_(output, return_intermediate=True)
+                # only keep hidden state of requested layer
+                intermediate = intermediate[return_intermediate]
+
+        output = self.ff_(output)
+
+        if self.task.is_representation_learning:
+            return self.embedding_(output)
+
+        output = self.linear_(output)
+        output = self.activation_(output)
+
+        if return_intermediate is None:
+            return output
+        return output, intermediate
+
+    @property
+    def dimension(self):
+        if self.task.is_representation_learning:
+            return self.embedding_.dimension
+
+        return Model.dimension.fget(self)
+
+    def intermediate_dimension(self, layer):
+        if layer == 0:
+            return self.sincnet_.dimension
+        return self.rnn_.intermediate_dimension(layer-1)
+
+    def get_last_shared_layer(self):
+        '''
+        Last layer that is shared by all tasks/labels
+        Used for GradNorm
+        '''
+        return self.ff_.linear_[-1]
