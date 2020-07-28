@@ -118,7 +118,11 @@ class MultilabelDetection(Pipeline):
             pad_onset=self.pad_onset,
             pad_offset=self.pad_offset)
 
+<<<<<<< HEAD
     def __call__(self, current_file: dict, annotation_mask1=None, annotation_mask2=None) -> Annotation:
+=======
+    def __call__(self, current_file: dict, annotation_mask=None) -> Annotation:
+>>>>>>> origin/SelectiveTraining
         """Apply multilabel detection
 
         Parameters

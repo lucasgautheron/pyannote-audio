@@ -324,6 +324,7 @@ class MultilabelDetection(BaseLabeling):
             
             # KCHI, CHI
             for considered_label in ['KCHI', 'CHI']:
+
                 res, metric_dict = self.find_best_threshold(label_names, considered_label, validation_data, n_jobs, precision)
                 result[considered_label] = res
                 aggregated_metric += res['value']
@@ -600,6 +601,7 @@ class MultilabelDetection(BaseLabeling):
             with open(output_rttm, 'w') as fp:
                 for current_file in getattr(protocol, subset)():
                     # mask file by speech hypothesis
+
                     if label in ['MAL', 'FEM', 'ACHI']:
                         mask_hypothesis = speech_pipeline(current_file)
                         hypothesis = pipeline(current_file, mask_hypothesis)
@@ -609,6 +611,7 @@ class MultilabelDetection(BaseLabeling):
                         hypothesis = pipeline(current_file, mask_hypothesis1, mask_hypothesis2)
                     else:
                         hypothesis = pipeline(current_file)
+
                     pipeline.write_rttm(fp, hypothesis)
 
                     # compute evaluation metric (when possible)
