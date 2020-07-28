@@ -308,15 +308,27 @@ class MultilabelDetection(BaseLabeling):
                               current_file['scores'].sliding_window.step,
                               speech_hypothesis)
 
-            # Other labels
-            for considered_label in label_names:
-                if considered_label == 'SPEECH':
-                    continue
+            # MAL, FEM, ACHI
+            for considered_label in ['MAL', 'FEM', 'ACHI']:
+                res, metric_dict = self.find_best_threshold(label_names, considered_label, validation_data, n_jobs, precision)
+                result[considered_label] = res
+                if considered_label != 'ACHI': #don't count ACHI for the aggregation in order not to artificially give more value to childrens classes than to mal/fem classes
+                    aggregated_metric += res['value']
+            
+            # suppress everything outside ACHI hypothesis
+            for current_file in validation_data:
+                achi_hypothesis = result['ACHI']['pipeline'](current_file)
+                mask_features(current_file['scores'].data,
+                              current_file['scores'].sliding_window.step,
+                              achi_hypothesis)
+            
+            # KCHI, CHI
+            for considered_label in ['KCHI', 'CHI']:
                 res, metric_dict = self.find_best_threshold(label_names, considered_label, validation_data, n_jobs, precision)
                 result[considered_label] = res
                 aggregated_metric += res['value']
 
-            aggregated_metric /= len(label_names)
+            aggregated_metric /= len(['KCHI', 'CHI', 'SPEECH', 'MAL', 'FEM'])#avg
             result['value'] = aggregated_metric
             result['metric-names'] = [k for k in metric_dict.keys()]
 
@@ -543,9 +555,10 @@ class MultilabelDetection(BaseLabeling):
         # In which case, we'll use the same metric
         fscore = 'detection_fscore' in str(pretrained.validate_dir).split('/')[-2]
         label_names = precomputed.classes_
-        del label_names[label_names.index('SPEECH')]
-        label_names.insert(0, 'SPEECH')
+        label_names.clear()
+        label_names += ['SPEECH', 'MAL', 'FEM', 'ACHI', 'KCHI', 'CHI']
         speech_pipeline = None
+        achi_pipeline = None
         for label in label_names:
 
             # Initialization of the pipeline associated to this label
@@ -557,6 +570,8 @@ class MultilabelDetection(BaseLabeling):
             pipeline.instantiate(getattr(pretrained, "{}_pipeline_params_".format(label)))
             if label == 'SPEECH':
                 speech_pipeline = pipeline
+            if label == 'ACHI':
+                achi_pipeline = pipeline
 
             # Decides which type of label we're currently handling
             # so that we know how to derive the reference
@@ -585,11 +600,15 @@ class MultilabelDetection(BaseLabeling):
             with open(output_rttm, 'w') as fp:
                 for current_file in getattr(protocol, subset)():
                     # mask file by speech hypothesis
-                    speech_hypothesis = None
-                    if label != 'SPEECH':
-                        speech_hypothesis = speech_pipeline(current_file)
-
-                    hypothesis = pipeline(current_file, speech_hypothesis)
+                    if label in ['MAL', 'FEM', 'ACHI']:
+                        mask_hypothesis = speech_pipeline(current_file)
+                        hypothesis = pipeline(current_file, mask_hypothesis)
+                    elif label in ['KCHI', 'CHI']:
+                        mask_hypothesis1 = speech_pipeline(current_file)
+                        mask_hypothesis2 = achi_pipeline(current_file)
+                        hypothesis = pipeline(current_file, mask_hypothesis1, mask_hypothesis2)
+                    else:
+                        hypothesis = pipeline(current_file)
                     pipeline.write_rttm(fp, hypothesis)
 
                     # compute evaluation metric (when possible)

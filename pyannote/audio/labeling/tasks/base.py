@@ -603,18 +603,28 @@ class LabelingTask(Trainer):
                         if lbl == 'SPEECH':
                             task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], reduction='mean')
                             weight = 1. # all frames contribute to the speech loss
-                        else:
-                            # only frames with speech contribute to MAL/FEM/CHI losses
+                        elif lbl in ['ACHI', 'MAL', 'FEM']:
+                            # only frames with speech contribute to ACHI/MAL/FEM losses
                             speech_frames = (target[..., self.label_names.index('SPEECH')] == True).float()
                             num_speech_frames = torch.sum(speech_frames)
                             if num_speech_frames > 0:
+                                # mean on speech frames
                                 task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], weight=speech_frames, reduction='sum')
                                 task_i_loss = task_i_loss / num_speech_frames
                             else:
                                 task_i_loss = torch.tensor([0.], device=self.device_, requires_grad=True)
                             num_total_frames = input.shape[0]*input.shape[1]
                             weight = num_speech_frames / num_total_frames
-
+                        else: #lbl in ['KCHI', 'CHI']
+                            # only frames with any children (ACHI) contribute to the loss
+                            achi_frames = (target[..., self.label_names.index('ACHI')] == True).float()
+                            num_achi_frames = torch.sum(achi_frames)
+                            if num_achi_frames > 0:
+                                # mean on achi frames
+                                task_i_loss = F.binary_cross_entropy(input[..., i], target[..., i], weight=achi_frames, reduction='sum')
+                                task_i_loss = task_i_loss / num_achi_frames
+                            num_total_frames = input.shape[0]*input.shape[1]
+                            weight = num_achi_frames / num_total_frames
                         losses.append(task_i_loss*weight)
 
                     aggregated_loss = sum(losses)/len(losses)

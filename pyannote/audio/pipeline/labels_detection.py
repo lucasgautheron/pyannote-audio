@@ -118,7 +118,7 @@ class MultilabelDetection(Pipeline):
             pad_onset=self.pad_onset,
             pad_offset=self.pad_offset)
 
-    def __call__(self, current_file: dict, annotation_mask=None) -> Annotation:
+    def __call__(self, current_file: dict, annotation_mask1=None, annotation_mask2=None) -> Annotation:
         """Apply multilabel detection
 
         Parameters
@@ -151,8 +151,10 @@ class MultilabelDetection(Pipeline):
         data = np.exp(labels_scores.data) if self.log_scale_ \
                else labels_scores.data
         
-        if annotation_mask is not None:
-            mask_features(data, labels_scores.sliding_window.step, annotation_mask)
+        if annotation_mask1 is not None:
+            mask_features(data, labels_scores.sliding_window.step, annotation_mask1)
+        if annotation_mask2 is not None:
+            mask_features(data, labels_scores.sliding_window.step, annotation_mask2)
 
         col_index = self.label_list.index(self.considered_label)
         activation_prob = SlidingWindowFeature(data[:, col_index], labels_scores.sliding_window)
