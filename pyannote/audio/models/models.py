@@ -435,12 +435,12 @@ class PyanNet(Model):
         self.sincnet = sincnet
 
         if not sincnet.get('skip', False):
-            if n_features != 1:
-                msg = (
-                    f'SincNet only supports mono waveforms. '
-                    f'Here, waveform has {n_features} channels.'
-                )
-                raise ValueError(msg)
+            #if n_features != 1:
+            #    msg = (
+            #        f'SincNet only supports mono waveforms. '
+            #        f'Here, waveform has {n_features} channels.'
+            #    )
+            #    raise ValueError(msg)
             self.sincnet_ = SincNet(**sincnet)
             n_features = self.sincnet_.dimension
 
@@ -742,18 +742,18 @@ class CNN(nn.Module):
         step = 1
         for layer in layers:
             if layer['name'] == 'Conv2d':
-                kernel_time_dir = layer['params']['kernel_size'][0]
+                kernel_time_dir = layer['params']['kernel_size'][1]
                 receptive_field = receptive_field + (kernel_time_dir-1)*step
             elif layer['name'] == 'MaxPool2d':
-                kernel_time_dir = layer['params']['kernel_size'][0]
+                kernel_time_dir = layer['params']['kernel_size'][1]
                 receptive_field = receptive_field + (kernel_time_dir-1)*step
                 stride_time_dir = kernel_time_dir
                 step *= stride_time_dir
             if layer['name'] == 'Conv2dBlock':
-                kernel_time_dir = layer['params']['conv_kernel'][0]
+                kernel_time_dir = layer['params']['conv_kernel'][1]
                 receptive_field = receptive_field + (kernel_time_dir-1)*step
                 
-                kernel_time_dir = layer['params']['pool_kernel'][0]
+                kernel_time_dir = layer['params']['pool_kernel'][1]
                 receptive_field = receptive_field + (kernel_time_dir-1)*step
                 stride_time_dir = kernel_time_dir
                 step *= stride_time_dir

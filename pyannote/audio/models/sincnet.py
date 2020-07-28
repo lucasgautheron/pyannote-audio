@@ -273,7 +273,7 @@ class SincNet(nn.Module):
         # Waveform normalization
         self.waveform_normalize = waveform_normalize
         if self.waveform_normalize:
-            self.waveform_normalize_ = torch.nn.InstanceNorm1d(1, affine=True)
+            self.waveform_normalize_ = torch.nn.InstanceNorm1d(80, affine=True)
 
         # SincNet-specific parameters
         self.sample_rate = sample_rate
@@ -375,9 +375,10 @@ class SincNet(nn.Module):
         layers = zip(self.conv1d_, self.max_pool1d_)
         for i, (conv1d, max_pool1d) in enumerate(layers):
 
-            output = conv1d(output)
-            if i == 0:
-                output = torch.abs(output)
+            if i > 0:
+                output = conv1d(output)
+            #if i==0:
+            #    output = torch.abs(output)
 
             output = max_pool1d(output)
 

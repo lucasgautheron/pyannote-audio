@@ -238,7 +238,7 @@ class LibrosaMelSpectrogram(LibrosaFeatureExtraction):
         X = librosa.feature.melspectrogram(
             y.squeeze(), sr=sample_rate, n_mels=self.n_mels,
             n_fft=self.n_fft_, hop_length=self.hop_length_,
-            power=2.0)
+            power=2.0, center=False, pad_mode='valid')
         X = librosa.amplitude_to_db(X, ref=1.0, amin=1e-5, top_db=80.0).T
 
         if self.normalize:
