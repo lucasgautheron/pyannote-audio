@@ -35,5 +35,6 @@ from .base import NoAugmentation
 from .noise import AddNoise
 from .noise import AddNoiseFromGaps
 from .noise import PitchShift
+from .noise import WavAugment
 
 # from .reverb import Reverb

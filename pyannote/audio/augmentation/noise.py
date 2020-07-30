@@ -34,6 +34,7 @@
 import random
 import numpy as np
 import librosa
+import torch
 from pyannote.core import Segment
 from pyannote.audio.features.utils import RawAudio
 from pyannote.audio.features.utils import get_audio_duration
@@ -43,6 +44,7 @@ from pyannote.database import get_protocol
 from pyannote.database import get_annotated
 from pyannote.database import FileFinder
 from .base import Augmentation
+import augment
 
 
 normalize = lambda wav: wav / (np.sqrt(np.mean(wav ** 2)) + 1e-8)
@@ -137,25 +139,78 @@ class AddNoise(Augmentation):
         return normalize(original) + alpha * noise
 
 
+class WavAugment(Augmentation):
+
+    def __init__(self, with_musan, augmentations):
+        super().__init__()
+        self.with_musan = with_musan
+        if self.with_musan:
+            self.musan = AddNoise()
+        
+        self.effect_chain = augment.EffectChain()
+        for i, aug in enumerate(augmentations):
+            if aug['name'] == 'reverb':
+                self.random_room_scale = lambda: np.random.randint(0,100)
+                self.effect_chain = self.effect_chain.reverb(50, 50, self.random_room_scale).channels(1)
+            elif aug['name'] == 'pitch':
+                min_shift = aug['params']['min_shift']
+                max_shift = aug['params']['max_shift']
+                sr = aug['params']['sr'] if 'sr' in aug['params'] else 16000
+                self.random_pitch = lambda: np.random.randint(min_shift, max_shift)
+                self.effect_chain = self.effect_chain.pitch("-q", self.random_pitch).rate(sr)
+            elif aug['name'] == 'tdrop':
+                max_seconds = aug['params']['max_seconds']
+                self.effect_chain = self.effect_chain.time_dropout(max_seconds=max_seconds)
+            elif aug['name'] == 'bandrej':
+                band_width = aug['params']['band_width']
+                self.random_bandrej = lambda: WavAugment.random_bandrej(band_width)
+                self.effect_chain = self.effect_chain.sinc('-a', '120', self.random_bandrej)
+        
+    @staticmethod
+    def random_bandrej(band_width, lower_bound=0, upper_bound=8000):
+        start = np.random.randint(lower_bound, upper_bound-band_width)
+        return str(start+band_width)+"-"+str(start)
+
+            
+    def __call__(self, original, sample_rate):
+        augmented = original
+        
+        if self.with_musan:
+            augmented = self.musan(augmented, sample_rate)
+
+        augmented = self.effect_chain.apply(torch.from_numpy(augmented).view(1,-1),
+                                            src_info={'rate': sample_rate},
+                                            target_info={'rate': sample_rate})
+        
+        augmented = augmented.view(-1, 1).numpy()
+        augmented = normalize(augmented)
+        
+        return augmented
+
+
 class PitchShift(Augmentation):
     
-    def __init__(self, with_noise, bins_per_octave, min_shift, max_shift):
+    def __init__(self, with_noise, min_shift, max_shift):
         super().__init__()
         self.with_noise = with_noise
         self.min_shift = min_shift
         self.max_shift = max_shift
-        self.bins_per_octave = bins_per_octave
         if with_noise:
             self.add_noise = AddNoise()
+        # WavAugment arguments
+        self.src_info = {'rate': 16000}
+        self.target_info = {'rate': 16_000}
+        self.random_pitch_shift = lambda: np.random.randint(-300, +300)
+        self.effect_chain = augment.EffectChain().pitch("-q", self.random_pitch_shift).rate(16_000)
+
 
 
     def __call__(self, original, sample_rate):
-        rnd_shift = np.random.randint(self.min_shift, self.max_shift+1)
-        augmented = librosa.effects.pitch_shift(original.reshape(-1), 
-                                                sr=sample_rate, 
-                                                bins_per_octave=self.bins_per_octave,
-                                                n_steps=rnd_shift)
-        augmented = augmented.reshape(len(augmented), 1)
+        augmented = self.effect_chain.apply(torch.from_numpy(original), 
+                                            src_info=self.src_info, 
+                                            target_info=self.target_info)
+        augmented = augmented.view(-1, 1)
+        augmented = augmented.numpy()
         if self.with_noise:
             augmented = self.add_noise(augmented, sample_rate)
             return augmented
