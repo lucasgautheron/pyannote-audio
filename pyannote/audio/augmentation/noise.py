@@ -162,12 +162,14 @@ class WavAugment(Augmentation):
                 max_seconds = aug['params']['max_seconds']
                 self.effect_chain = self.effect_chain.time_dropout(max_seconds=max_seconds)
             elif aug['name'] == 'bandrej':
-                band_width = aug['params']['band_width']
-                self.random_bandrej = lambda: WavAugment.random_bandrej(band_width)
+                min_band_width = aug['params']['min_band_width']
+                max_band_width = aug['params']['max_band_width']
+                self.random_bandrej = lambda: WavAugment.random_bandrej(min_band_width, max_band_width)
                 self.effect_chain = self.effect_chain.sinc('-a', '120', self.random_bandrej)
         
     @staticmethod
-    def random_bandrej(band_width, lower_bound=0, upper_bound=8000):
+    def random_bandrej(min_band_width, max_band_width, lower_bound=0, upper_bound=8000):
+        band_width = np.random.randint(min_band_width, max_band_width)
         start = np.random.randint(lower_bound, upper_bound-band_width)
         return str(start+band_width)+"-"+str(start)
 
