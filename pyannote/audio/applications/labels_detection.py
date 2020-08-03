@@ -555,12 +555,9 @@ class MultilabelDetection(BaseLabeling):
         # Dirty hack to check if the validation optimized fscore or detection error rate
         # In which case, we'll use the same metric
         fscore = 'detection_fscore' in str(pretrained.validate_dir).split('/')[-2]
-        label_names = precomputed.classes_
-        label_names.clear()
-        label_names += ['SPEECH', 'MAL', 'FEM', 'ACHI', 'KCHI', 'CHI']
         speech_pipeline = None
         achi_pipeline = None
-        for label in label_names:
+        for label in ['SPEECH', 'MAL', 'FEM', 'ACHI', 'KCHI', 'CHI']:
 
             # Initialization of the pipeline associated to this label
             pipeline = Pipeline(scores=output_dir,
