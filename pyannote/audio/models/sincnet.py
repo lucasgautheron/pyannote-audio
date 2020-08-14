@@ -41,6 +41,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import math
 from pyannote.core import SlidingWindow
+from .myPytorch import MelSpectrogram
 
 
 class SincConv1d(nn.Module):
@@ -273,7 +274,7 @@ class SincNet(nn.Module):
         # Waveform normalization
         self.waveform_normalize = waveform_normalize
         if self.waveform_normalize:
-            self.waveform_normalize_ = torch.nn.InstanceNorm1d(80, affine=True)
+            self.waveform_normalize_ = torch.nn.InstanceNorm1d(1, affine=True)
 
         # SincNet-specific parameters
         self.sample_rate = sample_rate
@@ -313,17 +314,24 @@ class SincNet(nn.Module):
                                    groups=1,
                                    bias=True)
             else:
-                conv1d = SincConv1d(1,
-                                    out_channels,
-                                    kernel_size,
-                                    sample_rate=self.sample_rate,
-                                    min_low_hz=self.min_low_hz,
-                                    min_band_hz=self.min_band_hz,
-                                    stride=stride,
-                                    padding=0,
-                                    dilation=1,
-                                    bias=False,
-                                    groups=1)
+                #self.sincConv = SincConv1d(1,
+                #                    out_channels,
+                #                    kernel_size,
+                #                    sample_rate=self.sample_rate,
+                #                    min_low_hz=self.min_low_hz,
+                #                    min_band_hz=self.min_band_hz,
+                #                    stride=stride,
+                #                    padding=0,
+                #                    dilation=1,
+                #                    bias=False,
+                #                    groups=1)
+                conv1d = MelSpectrogram(
+                                        sample_rate = 16000,
+                                        n_fft = kernel_size,
+                                        hop_length = stride,
+                                        n_mels = out_channels,
+                                        power = 2.,
+                                        normalized = False)
             self.conv1d_.append(conv1d)
 
             # 1D max-pooling
@@ -374,11 +382,11 @@ class SincNet(nn.Module):
 
         layers = zip(self.conv1d_, self.max_pool1d_)
         for i, (conv1d, max_pool1d) in enumerate(layers):
-
-            if i > 0:
-                output = conv1d(output)
-            #if i==0:
-            #    output = torch.abs(output)
+            
+            output = conv1d(output)
+            if i==0:
+                output = output.view(output.shape[0],output.shape[2],output.shape[3])
+                output = torch.abs(output)
 
             output = max_pool1d(output)
 
@@ -398,3 +406,5 @@ class SincNet(nn.Module):
             return self.out_channels[-1]
         return locals()
     dimension = property(**dimension())
+
+
