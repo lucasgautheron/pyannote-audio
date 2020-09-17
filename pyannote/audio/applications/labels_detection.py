@@ -401,128 +401,128 @@ class MultilabelDetection(BaseLabeling):
         pretrained : `str`, optional
         Pipeline : `type`
         """
-
-        if pretrained is None:
-            pretrained = Pretrained(validate_dir=validate_dir,
-                                    duration=duration,
-                                    step=step,
-                                    batch_size=batch_size,
-                                    device=device)
-            output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
-        else:
-
-            if pretrained in torch.hub.list('pyannote/pyannote-audio'):
-                output_dir = validate_dir / pretrained
+        with torch.no_grad():
+            if pretrained is None:
+                pretrained = Pretrained(validate_dir=validate_dir,
+                                        duration=duration,
+                                        step=step,
+                                        batch_size=batch_size,
+                                        device=device)
+                output_dir = validate_dir / 'apply' / f'{pretrained.epoch_:04d}'
             else:
-                output_dir = validate_dir
 
-            pretrained = Wrapper(pretrained,
-                                 duration=duration,
-                                 step=step,
-                                 batch_size=batch_size,
-                                 device=device)
-        params = {}
+                if pretrained in torch.hub.list('pyannote/pyannote-audio'):
+                    output_dir = validate_dir / pretrained
+                else:
+                    output_dir = validate_dir
 
-        try:
-            params['classes'] = pretrained.classes
-        except AttributeError as e:
-            pass
-        try:
-            params['dimension'] = pretrained.dimension
-        except AttributeError as e:
-            pass
+                pretrained = Wrapper(pretrained,
+                                     duration=duration,
+                                     step=step,
+                                     batch_size=batch_size,
+                                     device=device)
+            params = {}
 
-        # create metadata file at root that contains
-        # sliding window and dimension information
-        precomputed = Precomputed(
-            root_dir=output_dir,
-            sliding_window=pretrained.sliding_window,
-            **params)
-
-        # file generator
-        preprocessors = getattr(pretrained, "preprocessors_", dict())
-        if "audio" not in preprocessors:
-            preprocessors["audio"] = FileFinder()
-        if 'duration' not in preprocessors:
-            preprocessors['duration'] = get_audio_duration
-        protocol = get_protocol(protocol_name,
-                                progress=True,
-                                preprocessors=preprocessors)
-
-        for current_file in getattr(protocol, subset)():
-            fX = pretrained(current_file)
-            precomputed.dump(current_file, fX)
-
-        # do not proceed with the full pipeline
-        # when there is no such thing for current task
-        if Pipeline is None:
-            return
-
-        # Dirty hack to check if the validation optimized fscore or detection error rate
-        # In which case, we'll use the same metric
-        fscore = 'detection_fscore' in str(pretrained.validate_dir).split('/')[-2]
-
-        for label in precomputed.classes_:
-
-            # Initialization of the pipeline associated to this label
-            pipeline = Pipeline(scores=output_dir,
-                                label_list=precomputed.classes_,
-                                considered_label=label,
-                                fscore=fscore)
-
-            pipeline.instantiate(getattr(pretrained, "{}_pipeline_params_".format(label)))
-
-            # Decides which type of label we're currently handling
-            # so that we know how to derive the reference
-            if label in pretrained.labels_spec_["regular"]:
-                derivation_type = "regular"
-            elif label in pretrained.labels_spec_["union"]:
-                derivation_type = "union"
-            elif label in pretrained.labels_spec_["intersection"]:
-                derivation_type = "intersection"
-            else:
-                raise ValueError("%s not found in training labels : %s"
-                                 % (label, pretrained.label_spec_))
-
-            # Load pipeline metric (when available)
             try:
-                metric = pipeline.get_metric()
-            except NotImplementedError as e:
-                metric = None
+                params['classes'] = pretrained.classes
+            except AttributeError as e:
+                pass
+            try:
+                params['dimension'] = pretrained.dimension
+            except AttributeError as e:
+                pass
+
+            # create metadata file at root that contains
+            # sliding window and dimension information
+            precomputed = Precomputed(
+                root_dir=output_dir,
+                sliding_window=pretrained.sliding_window,
+                **params)
+
+            # file generator
+            preprocessors = getattr(pretrained, "preprocessors_", dict())
+            if "audio" not in preprocessors:
+                preprocessors["audio"] = FileFinder()
+            if 'duration' not in preprocessors:
+                preprocessors['duration'] = get_audio_duration
+            protocol = get_protocol(protocol_name,
+                                    progress=True,
+                                    preprocessors=preprocessors)
+
+            for current_file in getattr(protocol, subset)():
+                fX = pretrained(current_file)
+                precomputed.dump(current_file, fX)
+
+            # do not proceed with the full pipeline
+            # when there is no such thing for current task
+            if Pipeline is None:
+                return
+
+            # Dirty hack to check if the validation optimized fscore or detection error rate
+            # In which case, we'll use the same metric
+            fscore = 'detection_fscore' in str(pretrained.validate_dir).split('/')[-2]
+
+            for label in precomputed.classes_:
+
+                # Initialization of the pipeline associated to this label
+                pipeline = Pipeline(scores=output_dir,
+                                    label_list=precomputed.classes_,
+                                    considered_label=label,
+                                    fscore=fscore)
+
+                pipeline.instantiate(getattr(pretrained, "{}_pipeline_params_".format(label)))
+
+                # Decides which type of label we're currently handling
+                # so that we know how to derive the reference
+                if label in pretrained.labels_spec_["regular"]:
+                    derivation_type = "regular"
+                elif label in pretrained.labels_spec_["union"]:
+                    derivation_type = "union"
+                elif label in pretrained.labels_spec_["intersection"]:
+                    derivation_type = "intersection"
+                else:
+                    raise ValueError("%s not found in training labels : %s"
+                                     % (label, pretrained.label_spec_))
+
+                # Load pipeline metric (when available)
+                try:
+                    metric = pipeline.get_metric()
+                except NotImplementedError as e:
+                    metric = None
 
 
-            # Apply pipeline and dump output to RTTM files
-            output_rttm = output_dir / f'{protocol_name}.{subset}.{label}.rttm'
-            with open(output_rttm, 'w') as fp:
-                for current_file in getattr(protocol, subset)():
-                    hypothesis = pipeline(current_file)
-                    pipeline.write_rttm(fp, hypothesis)
+                # Apply pipeline and dump output to RTTM files
+                output_rttm = output_dir / f'{protocol_name}.{subset}.{label}.rttm'
+                with open(output_rttm, 'w') as fp:
+                    for current_file in getattr(protocol, subset)():
+                        hypothesis = pipeline(current_file)
+                        pipeline.write_rttm(fp, hypothesis)
 
-                    # compute evaluation metric (when possible)
-                    if 'annotation' not in current_file:
-                        metric = None
+                        # compute evaluation metric (when possible)
+                        if 'annotation' not in current_file:
+                            metric = None
 
-                    # compute evaluation metric (when available)
-                    if metric is None:
-                        continue
+                        # compute evaluation metric (when available)
+                        if metric is None:
+                            continue
 
-                    reference = current_file['annotation']
-                    if derivation_type == "regular":
-                        reference = reference.subset([label])
-                    else:
-                        reference = MultilabelTask.derives_label(reference,
-                                                                 derivation_type=derivation_type,
-                                                                 meta_label=label,
-                                                                 regular_labels=pretrained.
-                                                                 labels_spec_[derivation_type][label])
-                    uem = get_annotated(current_file)
-                    _ = metric(reference, hypothesis, uem=uem)
+                        reference = current_file['annotation']
+                        if derivation_type == "regular":
+                            reference = reference.subset([label])
+                        else:
+                            reference = MultilabelTask.derives_label(reference,
+                                                                     derivation_type=derivation_type,
+                                                                     meta_label=label,
+                                                                     regular_labels=pretrained.
+                                                                     labels_spec_[derivation_type][label])
+                        uem = get_annotated(current_file)
+                        _ = metric(reference, hypothesis, uem=uem)
 
-            # we continue looping through classes, even though metric is not define
-            if metric is None:
-                continue
+                # we continue looping through classes, even though metric is not define
+                if metric is None:
+                    continue
 
-            output_eval = output_dir / f'{protocol_name}.{subset}.{label}.eval'
-            with open(output_eval, 'w') as fp:
-                fp.write(str(metric))
+                output_eval = output_dir / f'{protocol_name}.{subset}.{label}.eval'
+                with open(output_eval, 'w') as fp:
+                    fp.write(str(metric))
 
