@@ -508,7 +508,7 @@ class MultilabelDetection(BaseLabeling):
 
                         if save_scores:
                             output_scores = output_dir / f'{protocol_name}.{subset}.{label}.wav'
-                            soundfile.write(output_scores, scores, 16000)
+                            soundfile.write(output_scores, scores, 16000, subtype = 'PCM_U8')
 
                         # compute evaluation metric (when possible)
                         if 'annotation' not in current_file:
