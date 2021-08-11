@@ -74,7 +74,7 @@ class MultilabelDetection(Pipeline):
     """
 
     def __init__(self, label_list, considered_label, scores: Union[Text, Path] = None,
-                       fscore: bool = False, precision=None):
+                       fscore: bool = False, precision=None, save_scores: bool = False):
         super().__init__()
 
         if scores is None:
@@ -88,6 +88,7 @@ class MultilabelDetection(Pipeline):
         self.fscore = fscore
         self.precision = precision
 
+        self.save_scores = save_scores
 
         # hyper-parameters
         self.onset = Uniform(0., 1.)
@@ -146,9 +147,13 @@ class MultilabelDetection(Pipeline):
         activation = self._binarize.apply(activation_prob)
 
         activation.uri = current_file['uri']
-
-        return activation.to_annotation(generator=constant_generator(self.considered_label),
+        annotation = activation.to_annotation(generator=constant_generator(self.considered_label),
                                         modality=self.considered_label)
+
+        if self.save_scores:
+            return annotation, data[:, col_index]
+        else:
+            return annotation
 
     def get_metric(self, parallel=False) -> Union[DetectionErrorRate, DetectionPrecisionRecallFMeasure]:
         """Return new instance of detection metric"""

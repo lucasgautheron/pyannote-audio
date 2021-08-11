@@ -30,6 +30,7 @@
 import multiprocessing
 from functools import partial
 from pathlib import Path
+import soundfile
 from typing import Optional, Union
 
 import numpy as np
@@ -385,6 +386,7 @@ class MultilabelDetection(BaseLabeling):
                          batch_size: int = 32,
                          pretrained: Optional[str] = None,
                          Pipeline: type = None,
+                         save_scores: bool = False,
                          **kwargs):
         """Apply pre-trained model
 
@@ -445,6 +447,7 @@ class MultilabelDetection(BaseLabeling):
                 preprocessors["audio"] = FileFinder()
             if 'duration' not in preprocessors:
                 preprocessors['duration'] = get_audio_duration
+                
             protocol = get_protocol(protocol_name,
                                     progress=True,
                                     preprocessors=preprocessors)
@@ -468,7 +471,8 @@ class MultilabelDetection(BaseLabeling):
                 pipeline = Pipeline(scores=output_dir,
                                     label_list=precomputed.classes_,
                                     considered_label=label,
-                                    fscore=fscore)
+                                    fscore=fscore,
+                                    save_scores=save_scores)
 
                 pipeline.instantiate(getattr(pretrained, "{}_pipeline_params_".format(label)))
 
@@ -495,8 +499,16 @@ class MultilabelDetection(BaseLabeling):
                 output_rttm = output_dir / f'{protocol_name}.{subset}.{label}.rttm'
                 with open(output_rttm, 'w') as fp:
                     for current_file in getattr(protocol, subset)():
-                        hypothesis = pipeline(current_file)
+                        if save_scores:
+                            hypothesis, scores = pipeline(current_file)
+                        else:
+                            hypothesis, scores = pipeline(current_file), None
+                        
                         pipeline.write_rttm(fp, hypothesis)
+
+                        if save_scores:
+                            output_scores = output_dir / f'{protocol_name}.{subset}.{label}.wav'
+                            soundfile.write(output_scores, scores, 16000)
 
                         # compute evaluation metric (when possible)
                         if 'annotation' not in current_file:

@@ -211,6 +211,8 @@ Common options
                           samples or validating files. Defaults to using all
                           CPUs but one.
 
+  --save-scores=<save>    Save scores into a wav file.
+
 
 Speaker embedding
 ~~~~~~~~~~~~~~~~~
@@ -448,5 +450,7 @@ def main():
         params['Pipeline'] = getattr(Application, 'Pipeline', None)
 
         params['pretrained'] = arg['--pretrained']
+
+        params['save_scores'] = bool(arg['--save-scores'])
 
         Application.apply_pretrained(validate_dir, protocol, **params)
